@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hello">Hello World, DroidMuni</string>
+    <string name="app_name">DroidMuni</string>
+<string name="line">Line</string>
+<string name="direction">Direction</string>
+<string name="stop">Stop</string>
+<string name="route_config_uri">http://www.nextmuni.com/s/COM.NextBus.Servlets.XMLFeed?command=routeConfig&amp;a=%s&amp;r=%s</string>
+<string name="route_list_uri">http://www.nextmuni.com/googleMap/routeSelector.jsp?a=sf-muni</string>
+<string name="one_prediction_uri">http://www.nextmuni.com/s/COM.NextBus.Servlets.XMLFeed?command=predictions&amp;a=%s&amp;r=%s&amp;s=%s</string>
+</resources>

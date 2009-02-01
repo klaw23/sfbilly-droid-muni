@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+  xmlns:android="http://schemas.android.com/apk/res/android"
+  android:orientation="vertical"
+  android:layout_width="fill_parent"
+  android:layout_height="fill_parent">
+  <TextView
+    android:text="@string/line"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content" />
+  <Spinner
+    android:id="@+id/line"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    android:prompt="@string/line" />
+  <TextView
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    android:text="@string/direction" />
+  <Spinner
+    android:id="@+id/direction"
+    android:prompt="@string/direction"
+    android:layout_height="wrap_content"
+    android:layout_width="fill_parent" />
+  <TextView
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    android:text="@string/stop" />
+  <Spinner
+    android:id="@+id/stop"
+    android:prompt="@string/stop"
+    android:layout_height="wrap_content"
+    android:layout_width="fill_parent" />
+  <ListView
+    android:id="@+id/predictions"
+    android:layout_height="wrap_content"
+    android:layout_width="fill_parent" />
+</LinearLayout>
