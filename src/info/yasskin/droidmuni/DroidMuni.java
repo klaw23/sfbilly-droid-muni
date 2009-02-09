@@ -239,9 +239,6 @@ public class DroidMuni extends Activity {
           m_line = position;
 
           Cursor parent_item = (Cursor) parent.getItemAtPosition(position);
-          Log.i("DroidMuni",
-              "Line clicked: "
-                  + DatabaseUtils.dumpCurrentRowToString(parent_item));
           final String selected_route = parent_item.getString(1);
           m_direction_adapter.changeCursor(null);
           Future<Cursor> direction_data =
@@ -263,9 +260,6 @@ public class DroidMuni extends Activity {
           m_direction = position;
 
           Cursor parent_item = (Cursor) parent.getItemAtPosition(position);
-          Log.i("DroidMuni",
-              "Direction clicked: "
-                  + DatabaseUtils.dumpCurrentRowToString(parent_item));
           String selected_route = parent_item.getString(1);
           String selected_direction = parent_item.getString(2);
           m_stop_adapter.changeCursor(null);
@@ -289,9 +283,6 @@ public class DroidMuni extends Activity {
           m_stop = position;
 
           Cursor parent_item = (Cursor) parent.getItemAtPosition(position);
-          Log.i("DroidMuni",
-              "Stop clicked: "
-                  + DatabaseUtils.dumpCurrentRowToString(parent_item));
           String selected_route = parent_item.getString(1);
           String selected_direction = parent_item.getString(2);
           String selected_stop = parent_item.getString(3);
