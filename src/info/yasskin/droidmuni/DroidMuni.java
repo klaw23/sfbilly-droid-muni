@@ -1,5 +1,7 @@
 package info.yasskin.droidmuni;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -40,8 +42,11 @@ public class DroidMuni extends Activity {
   static final int REPREDICT_INTERVAL_MS = 2 * 60000;
 
   private String m_saved_line_selected;
-  private int m_direction;
-  private int m_stop;
+  /**
+   * Maps a route tag to the direction tag that was last selected for it.
+   */
+  private final Map<String, String> m_prev_directions =
+      new HashMap<String, String>();
 
   private SimpleCursorAdapter m_line_adapter;
   private SimpleCursorAdapter m_direction_adapter;
@@ -56,10 +61,6 @@ public class DroidMuni extends Activity {
 
     SharedPreferences pref = getPreferences(MODE_PRIVATE);
     this.m_saved_line_selected = safeGet(pref, String.class, "line", "");
-    this.m_direction =
-        safeGet(pref, Integer.class, "direction", Spinner.INVALID_POSITION);
-    this.m_stop =
-        safeGet(pref, Integer.class, "stop", Spinner.INVALID_POSITION);
 
     this.setContentView(R.layout.main);
 
@@ -158,8 +159,6 @@ public class DroidMuni extends Activity {
 
     SharedPreferences.Editor editor = this.getPreferences(MODE_PRIVATE).edit();
     editor.putString("line", this.m_saved_line_selected);
-    editor.putInt("direction", this.m_direction);
-    editor.putInt("stop", this.m_stop);
     editor.commit();
   }
 
@@ -229,14 +228,10 @@ public class DroidMuni extends Activity {
   }
 
   /**
-   * @param cursor
-   * @param and_then
+   * Waits for 'cursor' to be ready in a separate thread, then transfers back
+   * onto the UI threads, sets the received cursor into 'adapter', and calls
+   * and_then.run().
    */
-  private void changeCursorWhenReady(final CursorAdapter adapter,
-      final Future<Cursor> cursor) {
-    changeCursorWhenReadyAndThen(adapter, cursor, null);
-  }
-
   private void changeCursorWhenReadyAndThen(final CursorAdapter adapter,
       final Future<Cursor> cursor, final Runnable and_then) {
     s_executor.execute(new Runnable() {
@@ -268,7 +263,27 @@ public class DroidMuni extends Activity {
               managedBackgroundQuery(Uri.withAppendedPath(
                   NextMuniProvider.DIRECTIONS_URI, selected_route), null, null,
                   null, null);
-          changeCursorWhenReady(m_direction_adapter, direction_data);
+          changeCursorWhenReadyAndThen(m_direction_adapter, direction_data,
+              new Runnable() {
+                public void run() {
+                  final String prev_direction =
+                      m_prev_directions.get(selected_route);
+                  if (prev_direction == null) {
+                    // If we've never seen this route before, stay on the first
+                    // direction choice.
+                    return;
+                  }
+                  final Cursor directions = m_direction_adapter.getCursor();
+                  final int tag_index = directions.getColumnIndexOrThrow("tag");
+                  for (directions.moveToFirst(); !directions.isAfterLast(); directions.moveToNext()) {
+                    if (prev_direction.equals(directions.getString(tag_index))) {
+                      Spinner direction_spinner =
+                          (Spinner) findViewById(R.id.direction);
+                      direction_spinner.setSelection(directions.getPosition());
+                    }
+                  }
+                }
+              });
         }
 
         public void onNothingSelected(AdapterView<?> parent) {
@@ -281,11 +296,12 @@ public class DroidMuni extends Activity {
       new OnItemSelectedListener() {
         public void onItemSelected(AdapterView<?> parent, View v, int position,
             long id) {
-          m_direction = position;
-
           Cursor parent_item = (Cursor) parent.getItemAtPosition(position);
           String selected_route = parent_item.getString(1);
           String selected_direction = parent_item.getString(2);
+
+          m_prev_directions.put(selected_route, selected_direction);
+
           m_stop_adapter.changeCursor(null);
           Future<Cursor> stop_data =
               managedBackgroundQuery(Uri.withAppendedPath(
@@ -345,8 +361,6 @@ public class DroidMuni extends Activity {
       new OnItemSelectedListener() {
         public void onItemSelected(AdapterView<?> parent, View v, int position,
             long id) {
-          m_stop = position;
-
           Cursor parent_item = (Cursor) parent.getItemAtPosition(position);
           String selected_route = parent_item.getString(1);
           String selected_direction = parent_item.getString(2);
