@@ -10,7 +10,9 @@ import java.util.concurrent.Future;
 import android.app.Activity;
 import android.content.SharedPreferences;
 import android.database.Cursor;
-import android.database.DatabaseUtils;
+import android.location.Criteria;
+import android.location.Location;
+import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -26,6 +28,10 @@ import android.widget.AdapterView.OnItemSelectedListener;
 
 public class DroidMuni extends Activity {
   private final Handler m_handler = new Handler();
+  /**
+   * Set once in onCreate() and never modified again.
+   */
+  private LocationManager m_location_manager;
 
   private static final ExecutorService s_executor =
       Executors.newCachedThreadPool();
@@ -33,7 +39,7 @@ public class DroidMuni extends Activity {
   static final int REDRAW_INTERVAL_MS = 30000;
   static final int REPREDICT_INTERVAL_MS = 2 * 60000;
 
-  private int m_line;
+  private String m_saved_line_selected;
   private int m_direction;
   private int m_stop;
 
@@ -46,11 +52,14 @@ public class DroidMuni extends Activity {
   @Override
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    m_location_manager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
     SharedPreferences pref = getPreferences(MODE_PRIVATE);
-    this.m_line = pref.getInt("line", Spinner.INVALID_POSITION);
-    this.m_direction = pref.getInt("direction", Spinner.INVALID_POSITION);
-    this.m_stop = pref.getInt("stop", Spinner.INVALID_POSITION);
+    this.m_saved_line_selected = safeGet(pref, String.class, "line", "");
+    this.m_direction =
+        safeGet(pref, Integer.class, "direction", Spinner.INVALID_POSITION);
+    this.m_stop =
+        safeGet(pref, Integer.class, "stop", Spinner.INVALID_POSITION);
 
     this.setContentView(R.layout.main);
 
@@ -100,15 +109,30 @@ public class DroidMuni extends Activity {
     });
     prediction_list.setAdapter(m_predictions_adapter);
 
-    // if (mLine != Spinner.INVALID_POSITION) {
-    // line_spinner.setSelection(mLine);
-    // }
-    // if (mDirection != Spinner.INVALID_POSITION) {
-    // direction_spinner.setSelection(mDirection);
-    // }
-    // if (mStop != Spinner.INVALID_POSITION) {
-    // stop_spinner.setSelection(mStop);
-    // }
+    if (m_saved_line_selected != "") {
+      final Cursor line_cursor = m_line_adapter.getCursor();
+      final int tag_index = line_cursor.getColumnIndexOrThrow("tag");
+      for (line_cursor.moveToFirst(); !line_cursor.isAfterLast(); line_cursor.moveToNext()) {
+        if (line_cursor.getString(tag_index).equals(m_saved_line_selected)) {
+          line_spinner.setSelection(line_cursor.getPosition());
+          break;
+        }
+      }
+    }
+  }
+
+  /**
+   * Retrieves the preference named 'name' of type 'T' from 'pref'. If the
+   * preference is not present or has the wrong type, returns 'defalt'.
+   */
+  @SuppressWarnings("unchecked")
+  private static <T> T safeGet(SharedPreferences pref, Class<T> type,
+      String name, T defalt) {
+    Object value = pref.getAll().get(name);
+    if (value == null || !type.isInstance(value)) {
+      return defalt;
+    }
+    return (T) value;
   }
 
   @Override
@@ -133,7 +157,7 @@ public class DroidMuni extends Activity {
     m_handler.removeCallbacks(mRequeryPredictions);
 
     SharedPreferences.Editor editor = this.getPreferences(MODE_PRIVATE).edit();
-    editor.putInt("line", this.m_line);
+    editor.putString("line", this.m_saved_line_selected);
     editor.putInt("direction", this.m_direction);
     editor.putInt("stop", this.m_stop);
     editor.commit();
@@ -236,10 +260,9 @@ public class DroidMuni extends Activity {
       new OnItemSelectedListener() {
         public void onItemSelected(AdapterView<?> parent, View v, int position,
             long id) {
-          m_line = position;
-
           Cursor parent_item = (Cursor) parent.getItemAtPosition(position);
           final String selected_route = parent_item.getString(1);
+          m_saved_line_selected = selected_route;
           m_direction_adapter.changeCursor(null);
           Future<Cursor> direction_data =
               managedBackgroundQuery(Uri.withAppendedPath(
@@ -250,6 +273,7 @@ public class DroidMuni extends Activity {
 
         public void onNothingSelected(AdapterView<?> parent) {
           m_direction_adapter.changeCursor(null);
+          m_saved_line_selected = "";
         }
       };
 
@@ -268,13 +292,54 @@ public class DroidMuni extends Activity {
                   NextMuniProvider.STOPS_URI, selected_route + "/"
                                               + selected_direction), null,
                   null, null, null);
-          changeCursorWhenReady(m_stop_adapter, stop_data);
+          changeCursorWhenReadyAndThen(m_stop_adapter, stop_data,
+              mSetStopToNearest);
         }
 
         public void onNothingSelected(AdapterView<?> parent) {
           m_stop_adapter.changeCursor(null);
         }
       };
+
+  private final Runnable mSetStopToNearest = new Runnable() {
+    public void run() {
+      if (m_location_manager == null) {
+        return;
+      }
+      final String provider_name =
+          m_location_manager.getBestProvider(new Criteria(), true);
+      if (provider_name == null) {
+        return;
+      }
+      final Location last_location =
+          m_location_manager.getLastKnownLocation(provider_name);
+      if (last_location == null) {
+        // Can't get the location, so leave the default stop at the
+        // first one.
+        return;
+      }
+      final Cursor stop_cursor = m_stop_adapter.getCursor();
+      final int lat_index = stop_cursor.getColumnIndexOrThrow("lat");
+      final int lon_index = stop_cursor.getColumnIndexOrThrow("lon");
+      final float[] results = new float[1];
+
+      double best_distance = Double.POSITIVE_INFINITY;
+      int best_position = Spinner.INVALID_POSITION;
+      for (stop_cursor.moveToFirst(); !stop_cursor.isAfterLast(); stop_cursor.moveToNext()) {
+        double stop_lat = stop_cursor.getDouble(lat_index);
+        double stop_lon = stop_cursor.getDouble(lon_index);
+        Location.distanceBetween(last_location.getLatitude(),
+            last_location.getLongitude(), stop_lat, stop_lon, results);
+        double distance = results[0];
+        if (distance < best_distance) {
+          best_distance = distance;
+          best_position = stop_cursor.getPosition();
+        }
+      }
+      final Spinner stop_spinner = (Spinner) findViewById(R.id.stop);
+      stop_spinner.setSelection(best_position);
+    }
+  };
 
   private final OnItemSelectedListener mStopClickedHandler =
       new OnItemSelectedListener() {

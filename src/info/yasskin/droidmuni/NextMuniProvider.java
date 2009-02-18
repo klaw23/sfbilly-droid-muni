@@ -3,7 +3,6 @@ package info.yasskin.droidmuni;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -181,7 +180,7 @@ public class NextMuniProvider extends ContentProvider {
       Map<String, Db.Route> routes = db.getRoutes();
       List<Db.Route> route_list = new ArrayList<Db.Route>(routes.values());
       Collections.sort(route_list);
-      String[] columns = { "_id", "name", "description" };
+      String[] columns = { "_id", "tag", "description" };
       MatrixCursor result = new MatrixCursor(columns, routes.size());
       int id = 0;
       for (Db.Route route : route_list) {
@@ -383,7 +382,7 @@ public class NextMuniProvider extends ContentProvider {
 
     List<Db.Stop> stops = the_route.directions.get(direction_tag).stops;
     String[] columns =
-        { "_id", "route_tag", "direction_tag", "stop_tag", "title" };
+        { "_id", "route_tag", "direction_tag", "stop_tag", "title", "lat", "lon" };
     MatrixCursor result = new MatrixCursor(columns);
     int id = 0;
     for (Db.Stop stop : stops) {
@@ -393,6 +392,8 @@ public class NextMuniProvider extends ContentProvider {
       row.add(direction_tag);
       row.add(stop.tag);
       row.add(stop.title);
+      row.add(stop.lat);
+      row.add(stop.lon);
     }
     return result;
   }

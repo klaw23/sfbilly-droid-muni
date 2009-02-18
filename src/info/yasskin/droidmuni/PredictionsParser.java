@@ -7,8 +7,6 @@ import java.util.List;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
-import android.util.Log;
-
 public class PredictionsParser extends Parser {
   public List<Db.Prediction> getPredictions() {
     return predictions;
