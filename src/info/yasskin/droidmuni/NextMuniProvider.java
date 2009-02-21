@@ -179,7 +179,7 @@ public class NextMuniProvider extends ContentProvider {
     // Pull the cookies that let us request route information. We can
     // pick up the route names and IDs along with them
     HttpGet init_request =
-        new HttpGet(getContext().getString(R.string.route_list_uri));
+        new HttpGet(NextMuniUriBuilder.buildRouteListUri("sf-muni").toString());
     try {
       Log.d("DroidMuni", "Requesting " + init_request.getURI());
       return mClient.execute(init_request, handler);
@@ -277,9 +277,9 @@ public class NextMuniProvider extends ContentProvider {
    * @throws IllegalStateException
    */
   private RouteConfigParser getAndParseRoute(String agency_tag, String route_tag) {
-    String request_uri =
-        getContext().getString(R.string.route_config_uri, agency_tag, route_tag);
-    return getAndParse(request_uri, RouteConfigParser.class);
+    Uri request_uri =
+        NextMuniUriBuilder.buildRouteDetailsUri(agency_tag, route_tag);
+    return getAndParse(request_uri.toString(), RouteConfigParser.class);
   }
 
   /**
@@ -480,12 +480,12 @@ public class NextMuniProvider extends ContentProvider {
 
   private Cursor queryPredictions(String agency_tag, String route_tag,
       String direction_tag, String stop_tag) {
-    String request_uri =
-        getContext().getString(R.string.one_prediction_uri, agency_tag,
-            route_tag, stop_tag);
+    Uri prediction_uri =
+        NextMuniUriBuilder.buildMultiPredictionUri(agency_tag, stop_tag,
+            route_tag);
 
     PredictionsParser parser =
-        getAndParse(request_uri, PredictionsParser.class);
+        getAndParse(prediction_uri.toString(), PredictionsParser.class);
     if (parser == null) {
       return null;
     }
