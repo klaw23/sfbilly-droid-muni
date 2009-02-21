@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -83,33 +84,86 @@ public class NextMuniProvider extends ContentProvider {
   }
 
   private final DefaultHttpClient mClient = new DefaultHttpClient();
-  private boolean mHaveCookie = false;
   private final Db db = new Db();
+  private boolean m_someone_fetching_routes = false; // Guarded by db.
 
   @Override
   public boolean onCreate() {
+    tryFetchRoutes(ForceCookieRequest.DO);
+    return true;
+  }
+
+  enum ForceCookieRequest {
+    DO, DONT
+  };
+
+  /**
+   * If the database doesn't already have the list of routes, requests the list
+   * from NextMUNI. Uses m_someone_fetching_routes to make sure we only send one
+   * request at a time. If we start a call while another thread is fetching, and
+   * they fail, we fail too in order to bound the maximum blocking time to a
+   * single request timeout.
+   * 
+   * @param force
+   *          If this is "FORCE...", always makes a request to get the cookies.
+   *          Otherwise, only makes a request when we actually need to retrieve
+   *          the route information.
+   * @return The routes, or null if this or a concurrent request failed.
+   */
+  private Map<String, Db.Route> tryFetchRoutes(final ForceCookieRequest force) {
     final Map<String, Db.Route> routes = db.getRoutes();
-    final boolean routes_empty;
-    synchronized (db) {
-      routes_empty = routes.isEmpty();
+    if (routes != null && force == ForceCookieRequest.DONT) {
+      return routes;
     }
-    if (!mHaveCookie || routes_empty) {
-      return getCookieAndRoutes(new ResponseHandler<Boolean>() {
-        public Boolean handleResponse(HttpResponse response)
-            throws ClientProtocolException, IOException {
-          synchronized (db) {
-            if (routes.isEmpty()) {
-              String route_string =
-                  new BasicResponseHandler().handleResponse(response);
-              parseRoutes(db, route_string);
-            }
-            return true;
+    final boolean routes_empty;
+    final boolean someone_was_fetching_routes;
+    synchronized (db) {
+      routes_empty = db.getRoutes() == null;
+      if (routes_empty) {
+        someone_was_fetching_routes = m_someone_fetching_routes;
+        while (m_someone_fetching_routes) {
+          try {
+            db.wait();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
           }
         }
-      });
+        if (someone_was_fetching_routes) {
+          if (force == ForceCookieRequest.DO) {
+            getCookieAndRoutes(mIgnoreResponseHandler);
+          }
+          return db.getRoutes();
+        } else {
+          m_someone_fetching_routes = true;
+        }
+      }
     }
-
-    return true;
+    try {
+      if (routes_empty) {
+        getCookieAndRoutes(new ResponseHandler<Boolean>() {
+          public Boolean handleResponse(HttpResponse response)
+              throws ClientProtocolException, IOException {
+            synchronized (db) {
+              if (db.getRoutes() == null) {
+                String route_string =
+                    new BasicResponseHandler().handleResponse(response);
+                db.setRoutes(parseRoutes(route_string));
+              }
+              return true;
+            }
+          }
+        });
+      } else if (force == ForceCookieRequest.DO) {
+        getCookieAndRoutes(mIgnoreResponseHandler);
+      }
+    } finally {
+      synchronized (db) {
+        m_someone_fetching_routes = false;
+        db.notifyAll();
+      }
+    }
+    return db.getRoutes();
   }
 
   /**
@@ -130,23 +184,27 @@ public class NextMuniProvider extends ContentProvider {
       Log.d("DroidMuni", "Requesting " + init_request.getURI());
       return mClient.execute(init_request, handler);
     } catch (ClientProtocolException e) {
+      Toast.makeText(getContext(), "Cookie/route request failed." + e,
+          Toast.LENGTH_SHORT);
       Log.e("DroidMuni", "Cookie/route request failed.", e);
       init_request.abort();
       return false;
     } catch (IOException e) {
+      Toast.makeText(getContext(), "Cookie/route request failed." + e,
+          Toast.LENGTH_SHORT);
       Log.e("DroidMuni", "Cookie/route request failed.", e);
       init_request.abort();
       return false;
     }
   }
 
-  private static class IgnoreResponseHandler implements
-      ResponseHandler<Boolean> {
-    public Boolean handleResponse(HttpResponse response)
-        throws ClientProtocolException, IOException {
-      return Boolean.TRUE;
-    }
-  }
+  private static final ResponseHandler<Boolean> mIgnoreResponseHandler =
+      new ResponseHandler<Boolean>() {
+        public Boolean handleResponse(HttpResponse response)
+            throws ClientProtocolException, IOException {
+          return Boolean.TRUE;
+        }
+      };
 
   /**
    * Match one route name block. Blocks look like:
@@ -165,11 +223,14 @@ public class NextMuniProvider extends ContentProvider {
           "<input type=\"checkbox\" id=\"([^\"]*)\".*?<td> ([^<]*) </td>",
           Pattern.DOTALL);
 
-  private static void parseRoutes(Db db, String route_string) {
+  private static Map<String, Db.Route> parseRoutes(String route_string) {
+    Map<String, Db.Route> result = new HashMap<String, Db.Route>();
     Matcher m = sRoutePattern.matcher(route_string);
     for (int upstream_index = 0; m.find(); upstream_index++) {
-      db.addRoute(new Db.Route(upstream_index, m.group(1), m.group(2)));
+      Db.Route route = new Db.Route(upstream_index, m.group(1), m.group(2));
+      result.put(route.tag, route);
     }
+    return result;
   }
 
   @Override
@@ -177,7 +238,10 @@ public class NextMuniProvider extends ContentProvider {
       String[] selectionArgs, String sortOrder) {
     switch (sURLMatcher.match(uri)) {
     case NEXT_MUNI_ROUTES:
-      Map<String, Db.Route> routes = db.getRoutes();
+      Map<String, Db.Route> routes = tryFetchRoutes(ForceCookieRequest.DONT);
+      if (routes == null) {
+        return null;
+      }
       List<Db.Route> route_list = new ArrayList<Db.Route>(routes.values());
       Collections.sort(route_list);
       String[] columns = { "_id", "tag", "description" };
@@ -228,6 +292,21 @@ public class NextMuniProvider extends ContentProvider {
    */
   private <ParserT extends Parser> ParserT getAndParse(String request_uri,
       Class<ParserT> parserT) {
+    return getAndParse(request_uri, parserT, false);
+  }
+
+  /**
+   * Requests a URI from NextBus, parses it with the specified parser, and
+   * returns the parser if it succeeded.
+   * 
+   * @param request_uri
+   * @param already_retried_cookie
+   *          TODO
+   * @return
+   * @throws IllegalStateException
+   */
+  private <ParserT extends Parser> ParserT getAndParse(String request_uri,
+      Class<ParserT> parserT, boolean already_retried_cookie) {
     Log.i("DroidMuni", "Requesting " + request_uri);
     HttpGet dir_request = new HttpGet(request_uri);
     InputStream get_response;
@@ -266,13 +345,13 @@ public class NextMuniProvider extends ContentProvider {
       Log.e("DroidMuni", "Parser didn't finish?!?");
       break;
     case MISSING_COOKIE:
-      if (!getCookieAndRoutes(new IgnoreResponseHandler())) {
-        Log.e("DroidMuni", "Failed to get cookie");
+      // If the cookie has expired, retry once by recursing. If the cookie
+      // request fails or the parse fails a second time, complain to the user.
+      if (already_retried_cookie || !getCookieAndRoutes(mIgnoreResponseHandler)) {
+        Toast.makeText(getContext(), "Failed to get cookie", Toast.LENGTH_SHORT).show();
         break;
       } else {
-        Toast.makeText(getContext(), "Cookie expired. Please try again.",
-            Toast.LENGTH_SHORT).show();
-        break;
+        return getAndParse(request_uri, parserT, true);
       }
     case IO_ERROR:
     case PARSE_ERROR:
@@ -382,7 +461,8 @@ public class NextMuniProvider extends ContentProvider {
 
     List<Db.Stop> stops = the_route.directions.get(direction_tag).stops;
     String[] columns =
-        { "_id", "route_tag", "direction_tag", "stop_tag", "title", "lat", "lon" };
+        { "_id", "route_tag", "direction_tag", "stop_tag", "title", "lat",
+         "lon" };
     MatrixCursor result = new MatrixCursor(columns);
     int id = 0;
     for (Db.Stop stop : stops) {

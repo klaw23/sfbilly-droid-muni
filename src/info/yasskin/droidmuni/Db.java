@@ -167,24 +167,30 @@ class Db {
     }
   }
 
-  private final Map<String, Route> mRoutes = new HashMap<String, Route>();
+  private volatile Map<String, Route> mRoutes;
   /**
    * Stop ID -> Stop
    */
   private final SparseArray<Stop> mStops = new SparseArray<Stop>();
 
-  // TODO: Change this to setRoutes() for thread-safety.
-  public synchronized void addRoute(Route newRoute) {
-    this.mRoutes.put(newRoute.tag, newRoute);
+  /**
+   * Don't modify routes after passing it in here.
+   */
+  public void setRoutes(Map<String, Route> routes) {
+    assert routes != null;
+    this.mRoutes = Collections.unmodifiableMap(routes);
   }
 
-  public synchronized Route getRoute(String route_tag) {
-    return mRoutes.get(route_tag);
+  public Route getRoute(String route_tag) {
+    final Map<String, Route> routes = mRoutes;
+    if (routes == null) {
+      return null;
+    }
+    return routes.get(route_tag);
   }
 
-  // TODO: Not thread-safe...
   public Map<String, Route> getRoutes() {
-    return Collections.unmodifiableMap(mRoutes);
+    return mRoutes;
   }
 
   public synchronized Stop getStop(int stop_tag) {
