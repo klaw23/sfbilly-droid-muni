@@ -24,10 +24,12 @@ class NextMuniUriBuilder {
   }
 
   static Uri buildMultiPredictionUri(String agency, String stop_tag,
-      String route_tag) {
+      String... route_tags) {
     Uri.Builder builder = s_multi_predictions_base.buildUpon();
     builder.appendQueryParameter("a", agency);
-    builder.appendQueryParameter("stops", route_tag + "||" + stop_tag);
+    for (String route_tag : route_tags) {
+      builder.appendQueryParameter("stops", route_tag + "||" + stop_tag);
+    }
     return builder.build();
   }
 }

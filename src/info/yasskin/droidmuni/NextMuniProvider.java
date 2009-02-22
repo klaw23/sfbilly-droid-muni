@@ -316,11 +316,11 @@ public class NextMuniProvider extends ContentProvider {
       // response gets closed.
       get_response = response.getEntity().getContent();
     } catch (ClientProtocolException e) {
-      Log.e("DroidMuni", "Cannot get directions: " + e);
+      Log.e("DroidMuni", "Cannot get directions: ", e);
       dir_request.abort();
       return null;
     } catch (IOException e) {
-      Log.e("DroidMuni", "Cannot get directions: " + e);
+      Log.e("DroidMuni", "Cannot get directions: ", e);
       dir_request.abort();
       return null;
     }
@@ -480,9 +480,22 @@ public class NextMuniProvider extends ContentProvider {
 
   private Cursor queryPredictions(String agency_tag, String route_tag,
       String direction_tag, String stop_tag) {
-    Uri prediction_uri =
-        NextMuniUriBuilder.buildMultiPredictionUri(agency_tag, stop_tag,
-            route_tag);
+    Uri prediction_uri = null;
+    try {
+      Db.Stop stop = db.getStop(Integer.parseInt(stop_tag, 10));
+      if (stop != null) {
+        prediction_uri =
+            NextMuniUriBuilder.buildMultiPredictionUri(agency_tag, stop_tag,
+                stop.routesThatStopHere());
+      }
+    } catch (NumberFormatException e) {
+      // Leave prediction_uri null for the next if block.
+    }
+    if (prediction_uri == null) {
+      prediction_uri =
+          NextMuniUriBuilder.buildMultiPredictionUri(agency_tag, stop_tag,
+              route_tag);
+    }
 
     PredictionsParser parser =
         getAndParse(prediction_uri.toString(), PredictionsParser.class);
@@ -491,19 +504,26 @@ public class NextMuniProvider extends ContentProvider {
     }
 
     List<Db.Prediction> predictions = parser.getPredictions();
+    Collections.sort(predictions);
     String[] columns =
-        { "_id", "route_tag", "direction_tag", "stop_tag", "predicted_time",
-         "endpoint" };
+        { "_id", "route_tag", "direction_tag", "direction_title", "stop_tag",
+         "predicted_time" };
     MatrixCursor result = new MatrixCursor(columns);
     int id = 0;
     for (Db.Prediction prediction : predictions) {
+      Db.Route route = db.getRoute(prediction.route_tag);
+      Db.Direction direction =
+          route != null ? route.directions.get(prediction.direction_tag) : null;
+      String direction_name =
+          direction != null ? direction.title : prediction.direction_tag;
+
       MatrixCursor.RowBuilder row = result.newRow();
       row.add(id++);
-      row.add(route_tag);
-      row.add(direction_tag);
+      row.add(prediction.route_tag);
+      row.add(prediction.direction_tag);
+      row.add(direction_name);
       row.add(stop_tag);
       row.add(prediction.predicted_time);
-      row.add(prediction.direction_tag);
     }
     return result;
   }

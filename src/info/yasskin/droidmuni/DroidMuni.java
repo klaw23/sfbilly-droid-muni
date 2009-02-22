@@ -19,6 +19,8 @@ import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.text.SpannableStringBuilder;
+import android.text.style.RelativeSizeSpan;
 import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
@@ -132,6 +134,11 @@ public class DroidMuni extends Activity {
           textview.setText(cursor.getString(columnIndex));
           return true;
         }
+        final int route_index = cursor.getColumnIndexOrThrow("route_tag");
+        final int direction_title_index =
+            cursor.getColumnIndexOrThrow("direction_title");
+        final int direction_tag_index =
+            cursor.getColumnIndexOrThrow("direction_tag");
         long expected_arrival = cursor.getLong(columnIndex);
         long now = System.currentTimeMillis();
         long delta_minutes = (expected_arrival - now) / 60000;
@@ -144,7 +151,24 @@ public class DroidMuni extends Activity {
         if (delta_minutes != 1) {
           plural = "s";
         }
-        textview.setText(delta_minutes + " minute" + plural + ago);
+        SpannableStringBuilder text = new SpannableStringBuilder();
+        text.append(delta_minutes + "").append(" minute").append(plural).append(
+            ago);
+
+        String route_tag = cursor.getString(route_index);
+        String direction_title = cursor.getString(direction_title_index);
+        if (!cursor.getString(direction_tag_index).equals(
+            getSelectedDirection())) {
+          final int small_start = text.length();
+          text.append("  (");
+          if (!route_tag.equals(getSelectedRoute())) {
+            text.append(route_tag).append(" ");
+          }
+          text.append(direction_title).append(")");
+          text.setSpan(new RelativeSizeSpan(0.7f), small_start, text.length(),
+              0);
+        }
+        textview.setText(text);
         return true;
       }
     });
@@ -319,6 +343,40 @@ public class DroidMuni extends Activity {
   private void resetCursor(final CursorAdapter adapter, final Cursor new_cursor) {
     adapter.changeCursor(null);
     adapter.changeCursor(new_cursor);
+  }
+
+  private String getSelectedRoute() {
+    final int position = m_line_spinner.getSelectedItemPosition();
+    if (position == Spinner.INVALID_POSITION) {
+      return null;
+    }
+    final Cursor cursor = m_line_adapter.getCursor();
+    if (cursor == null || cursor == m_loading_lines
+        || cursor == m_line_request_failed) {
+      return null;
+    }
+    if (!cursor.moveToPosition(position)) {
+      return null;
+    }
+    int tag_index = cursor.getColumnIndexOrThrow("tag");
+    return cursor.getString(tag_index);
+  }
+
+  private String getSelectedDirection() {
+    final int position = m_direction_spinner.getSelectedItemPosition();
+    if (position == Spinner.INVALID_POSITION) {
+      return null;
+    }
+    final Cursor cursor = m_direction_adapter.getCursor();
+    if (cursor == null || cursor == m_loading_directions
+        || cursor == m_directions_request_failed) {
+      return null;
+    }
+    if (!cursor.moveToPosition(position)) {
+      return null;
+    }
+    int tag_index = cursor.getColumnIndexOrThrow("tag");
+    return cursor.getString(tag_index);
   }
 
   private final OnItemSelectedListener mLineClickedHandler =

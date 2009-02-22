@@ -83,9 +83,6 @@ class RouteConfigParser extends Parser {
 		this.copyright = getAttr("copyright");
 
 		parser.nextTag();
-		Log.i("DroidMuni", "State: "
-				+ XmlPullParser.TYPES[parser.getEventType()] + "; value = '"
-				+ parser.getText() + "'");
 		parser.require(XmlPullParser.START_TAG, null, "route");
 		this.tag = getAttr("tag");
 		this.routeCode = getAttr("routeCode");

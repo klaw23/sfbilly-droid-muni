@@ -1,6 +1,5 @@
 package info.yasskin.droidmuni;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -105,8 +104,8 @@ class Db {
     /**
      * Returns a copy of the set of routes that stop at this stop.
      */
-    public synchronized List<String> routesThatStopHere() {
-      return new ArrayList<String>(routes_that_stop_here);
+    public synchronized String[] routesThatStopHere() {
+      return routes_that_stop_here.toArray(new String[routes_that_stop_here.size()]);
     }
 
     public synchronized void addRoute(String route_tag) {
