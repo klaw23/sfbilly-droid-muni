@@ -1,14 +1,15 @@
 package info.yasskin.droidmuni;
 
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
 
-import android.util.SparseArray;
+import android.content.ContentValues;
+import android.content.Context;
+import android.database.Cursor;
+import android.database.DatabaseUtils;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteOpenHelper;
 
 /**
  * Stores the cached database of NextBus route and stop information.
@@ -16,16 +17,76 @@ import android.util.SparseArray;
  * @author Jeffrey Yasskin <jyasskin@gmail.com>
  * 
  */
-class Db {
-  public static class Route implements Comparable<Route> {
-    public Route(int upstream_index, String tag, String description) {
+final class Db extends SQLiteOpenHelper {
+  public Db(Context context) {
+    super(context, "NextMUNIDb", null, 1);
+  }
+
+  @Override
+  public void onCreate(SQLiteDatabase db) {
+    db.beginTransaction();
+    try {
+      db.execSQL("CREATE TABLE Routes ("
+                 + "_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 + "tag TEXT UNIQUE," + "upstream_index INTEGER,"
+                 + "description TEXT,"
+                 + "last_direction_update_ms INTEGER DEFAULT 0)");
+
+      db.execSQL("CREATE TABLE Directions ("
+                 + "_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 + "route_id INTEGER REFERENCES Routes(_id)," + "tag TEXT,"
+                 + "title TEXT," + "name TEXT,"
+                 // use_for_ui is actually 0 or 1 for false or true.
+                 + "use_for_ui INTEGER," + "UNIQUE(route_id, tag))");
+
+      db.execSQL("CREATE TABLE Stops (" + "_id INTEGER PRIMARY KEY,"
+                 + "title TEXT," + "latitude DOUBLE," + "longitude DOUBLE)");
+
+      db.execSQL("CREATE TABLE DirectionStops ("
+                 + "direction INTEGER REFERENCES Directions(_id),"
+                 + "stop INTEGER REFERENCES Stops(_id),"
+                 + "stop_order INTEGER," + "UNIQUE(direction, stop_order))");
+
+      db.execSQL("CREATE TABLE StopRoutes ("
+                 + "stop INTEGER REFERENCES Stops(_id),"
+                 + "route INTEGER REFERENCES Routes(_id),"
+                 + "UNIQUE(stop, route))");
+
+      db.setTransactionSuccessful();
+    } finally {
+      db.endTransaction();
+    }
+  }
+
+  @Override
+  public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+    db.beginTransaction();
+    try {
+      db.execSQL("DROP TABLE IF EXISTS Routes");
+      db.execSQL("DROP TABLE IF EXISTS Directions");
+      db.execSQL("DROP TABLE IF EXISTS Stops");
+      db.execSQL("DROP TABLE IF EXISTS DirectionStops");
+      db.execSQL("DROP TABLE IF EXISTS StopRoutes");
+
+      onCreate(db);
+
+      db.setTransactionSuccessful();
+    } finally {
+      db.endTransaction();
+    }
+  }
+
+  public static class Route {
+    public Route(long id, int upstream_index, String tag, String description,
+        long directions_updated_ms) {
+      this.id = id;
       this.upstream_index = upstream_index;
       this.tag = tag;
       this.description = description;
-      this.directions =
-          Collections.synchronizedMap(new HashMap<String, Direction>());
+      this.directions_updated_ms = directions_updated_ms;
     }
 
+    public final long id;
     public final int upstream_index;
     public final String tag;
     public final String description;
@@ -33,29 +94,13 @@ class Db {
      * The result of System.currentTimeMillis() from the last time the
      * directions were updated.
      */
-    public final AtomicLong directions_updated_ms = new AtomicLong(0);
-    /**
-     * A synchronized map, so all accesses are thread-safe, and you can use
-     * synchronized(directions) to do updates.
-     */
-    public final Map<String, Db.Direction> directions;
-
-    public int compareTo(Route another) {
-      if (this.upstream_index < another.upstream_index)
-        return -1;
-      if (this.upstream_index > another.upstream_index)
-        return 1;
-      int comparison = this.tag.compareTo(another.tag);
-      if (comparison != 0)
-        return comparison;
-      return this.description.compareTo(another.description);
-    }
+    public final long directions_updated_ms;
   }
 
-  public static class Direction implements Comparable<Direction> {
-    public Direction(int upstream_index, String tag, String title, String name,
+  public static class Direction {
+    public Direction(long id, String tag, String title, String name,
         boolean useForUI, List<Db.Stop> stops) {
-      this.upstream_index = upstream_index;
+      this.id = id;
       this.tag = tag;
       this.title = title;
       this.name = name;
@@ -63,7 +108,7 @@ class Db {
       this.stops = Collections.unmodifiableList(stops);
     }
 
-    public final int upstream_index;
+    public final long id;
     /**
      * For example, "71__OB6".
      */
@@ -78,14 +123,6 @@ class Db {
     public final String name;
     public final boolean useForUI;
     public final List<Db.Stop> stops;
-
-    public int compareTo(Direction another) {
-      if (this.upstream_index < another.upstream_index)
-        return -1;
-      if (this.upstream_index > another.upstream_index)
-        return 1;
-      return this.tag.compareTo(another.tag);
-    }
   }
 
   public static class Stop {
@@ -100,19 +137,6 @@ class Db {
     public final String title;
     public final double lat;
     public final double lon;
-
-    /**
-     * Returns a copy of the set of routes that stop at this stop.
-     */
-    public synchronized String[] routesThatStopHere() {
-      return routes_that_stop_here.toArray(new String[routes_that_stop_here.size()]);
-    }
-
-    public synchronized void addRoute(String route_tag) {
-      routes_that_stop_here.add(route_tag);
-    }
-
-    private final Set<String> routes_that_stop_here = new HashSet<String>();
   }
 
   public static class Prediction implements Comparable<Prediction> {
@@ -166,34 +190,173 @@ class Db {
     }
   }
 
-  private volatile Map<String, Route> mRoutes;
   /**
-   * Stop ID -> Stop
+   * Leaves new_routes in an undetermined state.
    */
-  private final SparseArray<Stop> mStops = new SparseArray<Stop>();
+  public void setRoutes(Map<String, Route> new_routes) {
+    SQLiteDatabase tables = getWritableDatabase();
+    tables.beginTransaction();
+    try {
+      String[] COLUMNS =
+          new String[] { "_id", "tag", "upstream_index", "description" };
+      Cursor old_routes =
+          tables.query("Routes", COLUMNS, null, null, null, null, null);
+      try {
+        for (old_routes.moveToFirst(); !old_routes.isAfterLast(); old_routes.moveToNext()) {
+          final long id = old_routes.getLong(0);
+          final String tag = old_routes.getString(1);
+          final int upstream_index = old_routes.getInt(2);
+          final String description = old_routes.getString(3);
 
-  /**
-   * Don't modify routes after passing it in here.
-   */
-  public void setRoutes(Map<String, Route> routes) {
-    assert routes != null;
-    this.mRoutes = Collections.unmodifiableMap(routes);
+          final Route new_route = new_routes.remove(tag);
+          if (new_route == null) {
+            tables.delete("Routes", "_id == ?", new String[] { id + "" });
+          } else if (upstream_index != new_route.upstream_index
+                     || !description.equals(new_route.description)) {
+            ContentValues new_values = new ContentValues(2);
+            new_values.put("upstream_index", new_route.upstream_index);
+            new_values.put("description", new_route.description);
+            tables.update("Routes", new_values, "_id == ?",
+                new String[] { id + "" });
+          }
+        }
+        for (Route new_route : new_routes.values()) {
+          ContentValues new_values = new ContentValues(3);
+          new_values.put("tag", new_route.tag);
+          new_values.put("upstream_index", new_route.upstream_index);
+          new_values.put("description", new_route.description);
+          tables.insertOrThrow("Routes", "tag", new_values);
+        }
+      } finally {
+        old_routes.close();
+      }
+      tables.setTransactionSuccessful();
+    } finally {
+      tables.endTransaction();
+    }
   }
 
   public Route getRoute(String route_tag) {
-    final Map<String, Route> routes = mRoutes;
-    if (routes == null) {
-      return null;
+    SQLiteDatabase tables = getReadableDatabase();
+    final String[] COLUMNS =
+        { "_id", "tag", "upstream_index", "description",
+         "last_direction_update_ms" };
+    Cursor routes =
+        tables.query("Routes", COLUMNS, "tag == ?", new String[] { route_tag },
+            null, null, null);
+    try {
+      routes.moveToFirst();
+      Route result =
+          new Route(routes.getLong(0), routes.getInt(2), routes.getString(1),
+              routes.getString(3), routes.getLong(4));
+      return result;
+    } finally {
+      routes.close();
     }
-    return routes.get(route_tag);
   }
 
-  public Map<String, Route> getRoutes() {
-    return mRoutes;
+  public boolean hasRoutes() {
+    SQLiteDatabase tables = getReadableDatabase();
+    return DatabaseUtils.queryNumEntries(tables, "Routes") > 0;
   }
 
-  public synchronized Stop getStop(int stop_tag) {
-    return mStops.get(stop_tag);
+  /**
+   * Updates the route whose _id is route_id to have the directions in
+   * 'directions'. After this call, directions has an undefined set of elements.
+   */
+  public void setDirections(long route_id, Map<String, Direction> new_directions) {
+    SQLiteDatabase tables = getWritableDatabase();
+    tables.beginTransaction();
+    try {
+      String[] COLUMNS =
+          new String[] { "_id", "tag", "title", "name", "use_for_ui" };
+      Cursor old_directions =
+          tables.query("Directions", COLUMNS, "route_id == ?",
+              new String[] { route_id + "" }, null, null, null);
+      try {
+        final ContentValues new_values = new ContentValues(5);
+        for (old_directions.moveToFirst(); !old_directions.isAfterLast(); old_directions.moveToNext()) {
+          final long id = old_directions.getLong(0);
+          final String tag = old_directions.getString(1);
+          final String title = old_directions.getString(2);
+          final String name = old_directions.getString(3);
+          final boolean use_for_ui = old_directions.getInt(4) != 0;
+
+          final Direction new_direction = new_directions.remove(tag);
+          if (new_direction == null) {
+            tables.delete("Directions", "_id == ?", new String[] { id + "" });
+            continue;
+          } else if (!title.equals(new_direction.title)
+                     || !name.equals(new_direction.name)
+                     || use_for_ui != new_direction.useForUI) {
+            new_values.clear();
+            new_values.put("title", new_direction.title);
+            new_values.put("name", new_direction.name);
+            new_values.put("use_for_ui", new_direction.useForUI);
+            tables.update("Directions", new_values, "_id == ?",
+                new String[] { id + "" });
+          }
+
+          updateDirectionStops(tables, id, new_direction);
+        }
+        for (Direction new_direction : new_directions.values()) {
+          new_values.clear();
+          new_values.put("route_id", route_id);
+          new_values.put("tag", new_direction.tag);
+          new_values.put("title", new_direction.title);
+          new_values.put("name", new_direction.name);
+          new_values.put("use_for_ui", new_direction.useForUI);
+          long id = tables.insertOrThrow("Directions", null, new_values);
+          updateDirectionStops(tables, id, new_direction);
+        }
+      } finally {
+        old_directions.close();
+      }
+
+      tables.setTransactionSuccessful();
+    } finally {
+      tables.endTransaction();
+    }
+  }
+
+  private void updateDirectionStops(SQLiteDatabase tables, long direction_id,
+      Direction new_direction) {
+    tables.delete("DirectionStops", "direction == ?",
+        new String[] { direction_id + "" });
+
+    // Going to be inserting a bunch into DirectionStops...
+    DatabaseUtils.InsertHelper stop_inserter =
+        new DatabaseUtils.InsertHelper(tables, "DirectionStops");
+    int direction_index = stop_inserter.getColumnIndex("direction");
+    int stop_index = stop_inserter.getColumnIndex("stop");
+    int stop_order_index = stop_inserter.getColumnIndex("stop_order");
+    for (int i = 0; i < new_direction.stops.size(); ++i) {
+      stop_inserter.prepareForInsert();
+      stop_inserter.bind(direction_index, direction_id);
+      stop_inserter.bind(stop_index, new_direction.stops.get(i).tag);
+      stop_inserter.bind(stop_order_index, i);
+      stop_inserter.execute();
+    }
+  }
+
+  public String[] routesThatStopAt(String stop_tag) {
+    Cursor routes =
+        getReadableDatabase().rawQuery(
+            "SELECT tag FROM StopRoutes JOIN Routes ON (route == _id)"
+                + " WHERE stop == ?", new String[] { stop_tag });
+    try {
+      if (routes.getCount() == 0) {
+        return null;
+      }
+      String[] result = new String[routes.getCount()];
+      int i = 0;
+      for (routes.moveToFirst(); !routes.isAfterLast(); routes.moveToNext(), i++) {
+        result[i] = routes.getString(0);
+      }
+      return result;
+    } finally {
+      routes.close();
+    }
   }
 
   /**
@@ -202,13 +365,50 @@ class Db {
    * 
    * @return the canonical Stop object for this stop.
    */
-  public synchronized Stop addStop(Stop stop, String route_tag) {
-    Stop current = mStops.get(stop.tag);
-    if (current == null) {
-      mStops.put(stop.tag, stop);
-      current = stop;
+  public synchronized void addStop(Stop stop, long route_id) {
+    final SQLiteDatabase tables = getWritableDatabase();
+    tables.beginTransaction();
+    try {
+      final ContentValues values = new ContentValues(4);
+      final Cursor existing_stop =
+          tables.query("Stops",
+              new String[] { "title", "latitude", "longitude" }, "_id == ?",
+              new String[] { stop.tag + "" }, null, null, null);
+      try {
+        if (existing_stop.getCount() == 0) {
+          values.clear();
+          values.put("_id", stop.tag);
+          values.put("title", stop.title);
+          values.put("latitude", stop.lat);
+          values.put("longitude", stop.lon);
+          tables.insertOrThrow("Stops", null, values);
+        } else {
+          existing_stop.moveToFirst();
+          if (!existing_stop.getString(0).equals(stop.title)
+              || existing_stop.getDouble(1) != stop.lat
+              || existing_stop.getDouble(2) != stop.lon) {
+            values.clear();
+            values.put("title", stop.title);
+            values.put("latitude", stop.lat);
+            values.put("longitude", stop.lon);
+            tables.update("Stops", values, "_id == ?", new String[] { stop.tag
+                                                                      + "" });
+          }
+        }
+      } finally {
+        existing_stop.close();
+      }
+
+      values.clear();
+      values.put("stop", stop.tag);
+      values.put("route", route_id);
+      // If this fails, it's because the stop/route association is already set
+      // up, which is fine.
+      tables.insert("StopRoutes", null, values);
+
+      tables.setTransactionSuccessful();
+    } finally {
+      tables.endTransaction();
     }
-    current.addRoute(route_tag);
-    return current;
   }
 }

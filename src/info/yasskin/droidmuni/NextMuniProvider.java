@@ -2,7 +2,6 @@ package info.yasskin.droidmuni;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -23,7 +22,9 @@ import android.content.ContentProvider;
 import android.content.ContentValues;
 import android.content.UriMatcher;
 import android.database.Cursor;
+import android.database.DatabaseUtils;
 import android.database.MatrixCursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.util.Log;
 import android.widget.Toast;
@@ -84,11 +85,12 @@ public class NextMuniProvider extends ContentProvider {
   }
 
   private final DefaultHttpClient mClient = new DefaultHttpClient();
-  private final Db db = new Db();
+  private Db db; // Set in onCreate() and never modified again.
   private boolean m_someone_fetching_routes = false; // Guarded by db.
 
   @Override
   public boolean onCreate() {
+    db = new Db(getContext());
     tryFetchRoutes(ForceCookieRequest.DO);
     return true;
   }
@@ -110,15 +112,14 @@ public class NextMuniProvider extends ContentProvider {
    *          the route information.
    * @return The routes, or null if this or a concurrent request failed.
    */
-  private Map<String, Db.Route> tryFetchRoutes(final ForceCookieRequest force) {
-    final Map<String, Db.Route> routes = db.getRoutes();
-    if (routes != null && force == ForceCookieRequest.DONT) {
-      return routes;
+  private void tryFetchRoutes(final ForceCookieRequest force) {
+    if (force == ForceCookieRequest.DONT && db.hasRoutes()) {
+      return;
     }
     final boolean routes_empty;
     final boolean someone_was_fetching_routes;
     synchronized (db) {
-      routes_empty = db.getRoutes() == null;
+      routes_empty = !db.hasRoutes();
       if (routes_empty) {
         someone_was_fetching_routes = m_someone_fetching_routes;
         while (m_someone_fetching_routes) {
@@ -126,14 +127,14 @@ public class NextMuniProvider extends ContentProvider {
             db.wait();
           } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return null;
+            return;
           }
         }
         if (someone_was_fetching_routes) {
           if (force == ForceCookieRequest.DO) {
             getCookieAndRoutes(mIgnoreResponseHandler);
           }
-          return db.getRoutes();
+          return;
         } else {
           m_someone_fetching_routes = true;
         }
@@ -145,7 +146,7 @@ public class NextMuniProvider extends ContentProvider {
           public Boolean handleResponse(HttpResponse response)
               throws ClientProtocolException, IOException {
             synchronized (db) {
-              if (db.getRoutes() == null) {
+              if (!db.hasRoutes()) {
                 String route_string =
                     new BasicResponseHandler().handleResponse(response);
                 db.setRoutes(parseRoutes(route_string));
@@ -163,7 +164,6 @@ public class NextMuniProvider extends ContentProvider {
         db.notifyAll();
       }
     }
-    return db.getRoutes();
   }
 
   /**
@@ -227,7 +227,8 @@ public class NextMuniProvider extends ContentProvider {
     Map<String, Db.Route> result = new HashMap<String, Db.Route>();
     Matcher m = sRoutePattern.matcher(route_string);
     for (int upstream_index = 0; m.find(); upstream_index++) {
-      Db.Route route = new Db.Route(upstream_index, m.group(1), m.group(2));
+      Db.Route route =
+          new Db.Route(-1, upstream_index, m.group(1), m.group(2), 0);
       result.put(route.tag, route);
     }
     return result;
@@ -238,20 +239,14 @@ public class NextMuniProvider extends ContentProvider {
       String[] selectionArgs, String sortOrder) {
     switch (sURLMatcher.match(uri)) {
     case NEXT_MUNI_ROUTES:
-      Map<String, Db.Route> routes = tryFetchRoutes(ForceCookieRequest.DONT);
-      if (routes == null) {
+      tryFetchRoutes(ForceCookieRequest.DONT);
+      String[] COLUMNS = { "_id", "tag", "description" };
+      Cursor result =
+          db.getReadableDatabase().query("Routes", COLUMNS, null, null, null,
+              null, "upstream_index");
+      if (result.getCount() == 0) {
+        result.close();
         return null;
-      }
-      List<Db.Route> route_list = new ArrayList<Db.Route>(routes.values());
-      Collections.sort(route_list);
-      String[] columns = { "_id", "tag", "description" };
-      MatrixCursor result = new MatrixCursor(columns, routes.size());
-      int id = 0;
-      for (Db.Route route : route_list) {
-        MatrixCursor.RowBuilder row = result.newRow();
-        row.add(id++);
-        row.add(route.tag);
-        row.add(route.description);
       }
       return result;
     case NEXT_MUNI_DIRECTIONS:
@@ -374,12 +369,14 @@ public class NextMuniProvider extends ContentProvider {
    *          to this value so the next query will try again.
    */
   private void fillDbForRoute(String agency_tag, Db.Route route) {
-    // We use the directions_updated_ms field to make sure there's only one
-    // outstanding request to fill the directions and stop data for a route at
-    // a time.
-    synchronized (route.directions_updated_ms) {
-      if (route.directions_updated_ms.get() >= System.currentTimeMillis()
-                                               - ONE_DAY) {
+    final SQLiteDatabase tables = db.getWritableDatabase();
+    tables.beginTransaction();
+    try {
+      long last_update =
+          DatabaseUtils.longForQuery(tables,
+              "SELECT last_direction_update_ms FROM Routes WHERE _id == ?",
+              new String[] { route.id + "" });
+      if (last_update >= System.currentTimeMillis() - ONE_DAY) {
         // Someone else updated it first. Skip the work.
         return;
       }
@@ -389,18 +386,21 @@ public class NextMuniProvider extends ContentProvider {
       }
       synchronized (db) {
         for (int i = 0; i < parser.getStops().size(); i++) {
-          db.addStop(parser.getStops().valueAt(i), route.tag);
+          db.addStop(parser.getStops().valueAt(i), route.id);
         }
       }
 
-      Map<String, Db.Direction> dir_map = parser.getDirections();
-      synchronized (route.directions) {
-        route.directions.clear();
-        route.directions.putAll(dir_map);
-      }
+      final Map<String, Db.Direction> dir_map = parser.getDirections();
+      db.setDirections(route.id, dir_map);
 
       // Record that the directions and stops are now up to date.
-      route.directions_updated_ms.set(System.currentTimeMillis());
+      ContentValues values = new ContentValues(1);
+      values.put("last_direction_update_ms", System.currentTimeMillis());
+      tables.update("Routes", values, "_id = ?", new String[] { route.id + "" });
+
+      tables.setTransactionSuccessful();
+    } finally {
+      tables.endTransaction();
     }
   }
 
@@ -411,7 +411,7 @@ public class NextMuniProvider extends ContentProvider {
   private void maybeUpdateRouteData(final String agency_tag,
       final Db.Route the_route) {
     final long now = System.currentTimeMillis();
-    final long last_directions_update = the_route.directions_updated_ms.get();
+    final long last_directions_update = the_route.directions_updated_ms;
     if (last_directions_update < now - ONE_MONTH) {
       // The data is too old, so block until we can update it.
       fillDbForRoute(agency_tag, the_route);
@@ -431,25 +431,17 @@ public class NextMuniProvider extends ContentProvider {
     maybeUpdateRouteData(agency_tag, the_route);
 
     // Now use the local cache to return the directions list.
-    ArrayList<Db.Direction> directions = new ArrayList<Db.Direction>();
-    synchronized (the_route.directions) {
-      directions.ensureCapacity(the_route.directions.size());
-      for (Db.Direction direction : the_route.directions.values()) {
-        if (direction.useForUI) {
-          directions.add(direction);
-        }
-      }
-    }
-    Collections.sort(directions);
-    String[] columns = { "_id", "route_tag", "tag", "title" };
-    MatrixCursor result = new MatrixCursor(columns, directions.size());
-    int id = 0;
-    for (Db.Direction direction : directions) {
-      MatrixCursor.RowBuilder row = result.newRow();
-      row.add(id++);
-      row.add(route_tag);
-      row.add(direction.tag);
-      row.add(direction.title);
+    Cursor result =
+        db.getReadableDatabase().rawQuery(
+            "SELECT Directions._id AS _id, Routes.tag AS route_tag,"
+                + " Directions.tag AS tag, Directions.title AS title"
+                + " FROM Directions INNER JOIN Routes"
+                + " ON (Directions.route_id == Routes._id)"
+                + " WHERE Routes.tag == ? AND use_for_ui != 0"
+                + " ORDER BY Directions.tag ASC", new String[] { route_tag });
+    if (result.getCount() == 0) {
+      result.close();
+      return null;
     }
     return result;
   }
@@ -459,21 +451,22 @@ public class NextMuniProvider extends ContentProvider {
     final Db.Route the_route = db.getRoute(route_tag);
     maybeUpdateRouteData(agency_tag, the_route);
 
-    List<Db.Stop> stops = the_route.directions.get(direction_tag).stops;
-    String[] columns =
-        { "_id", "route_tag", "direction_tag", "stop_tag", "title", "lat",
-         "lon" };
-    MatrixCursor result = new MatrixCursor(columns);
-    int id = 0;
-    for (Db.Stop stop : stops) {
-      MatrixCursor.RowBuilder row = result.newRow();
-      row.add(id++);
-      row.add(route_tag);
-      row.add(direction_tag);
-      row.add(stop.tag);
-      row.add(stop.title);
-      row.add(stop.lat);
-      row.add(stop.lon);
+    Cursor result =
+        db.getReadableDatabase().rawQuery(
+            "SELECT Stops._id AS _id, Routes.tag AS route_tag,"
+                + " Directions.tag AS direction_tag, Stops._id AS stop_tag,"
+                + " Stops.title AS title, latitude AS lat, longitude AS lon"
+                + " FROM Routes JOIN Directions"
+                + " ON (Routes._id == Directions.route_id)"
+                + " JOIN DirectionStops"
+                + " ON (Directions._id == DirectionStops.direction)"
+                + " JOIN Stops ON (DirectionStops.stop == Stops._id)"
+                + " WHERE Routes.tag == ? AND Directions.tag == ?"
+                + " ORDER BY stop_order ASC",
+            new String[] { route_tag, direction_tag });
+    if (result.getCount() == 0) {
+      result.close();
+      return null;
     }
     return result;
   }
@@ -481,15 +474,11 @@ public class NextMuniProvider extends ContentProvider {
   private Cursor queryPredictions(String agency_tag, String route_tag,
       String direction_tag, String stop_tag) {
     Uri prediction_uri = null;
-    try {
-      Db.Stop stop = db.getStop(Integer.parseInt(stop_tag, 10));
-      if (stop != null) {
-        prediction_uri =
-            NextMuniUriBuilder.buildMultiPredictionUri(agency_tag, stop_tag,
-                stop.routesThatStopHere());
-      }
-    } catch (NumberFormatException e) {
-      // Leave prediction_uri null for the next if block.
+    String[] route_tags = db.routesThatStopAt(stop_tag);
+    if (route_tags != null) {
+      prediction_uri =
+          NextMuniUriBuilder.buildMultiPredictionUri(agency_tag, stop_tag,
+              route_tags);
     }
     if (prediction_uri == null) {
       prediction_uri =
@@ -505,17 +494,20 @@ public class NextMuniProvider extends ContentProvider {
 
     List<Db.Prediction> predictions = parser.getPredictions();
     Collections.sort(predictions);
+
+    HashMap<String, String> direction_tag2title =
+        buildDirectionTag2TitleMap(predictions);
+
     String[] columns =
         { "_id", "route_tag", "direction_tag", "direction_title", "stop_tag",
          "predicted_time" };
     MatrixCursor result = new MatrixCursor(columns);
     int id = 0;
     for (Db.Prediction prediction : predictions) {
-      Db.Route route = db.getRoute(prediction.route_tag);
-      Db.Direction direction =
-          route != null ? route.directions.get(prediction.direction_tag) : null;
-      String direction_name =
-          direction != null ? direction.title : prediction.direction_tag;
+      String direction_name = direction_tag2title.get(prediction.direction_tag);
+      if (direction_name == null) {
+        direction_name = prediction.direction_tag;
+      }
 
       MatrixCursor.RowBuilder row = result.newRow();
       row.add(id++);
@@ -526,6 +518,38 @@ public class NextMuniProvider extends ContentProvider {
       row.add(prediction.predicted_time);
     }
     return result;
+  }
+
+  /**
+   * Given a list of predictions (each of which has a direction tag), returns a
+   * HashMap from the tags to their titles.
+   */
+  private HashMap<String, String> buildDirectionTag2TitleMap(
+      List<Db.Prediction> predictions) {
+    StringBuilder tag_list = new StringBuilder("tag IN (");
+    for (int i = 0; i < predictions.size(); i++) {
+      if (i > 0) {
+        tag_list.append(",");
+      }
+      DatabaseUtils.appendEscapedSQLString(tag_list,
+          predictions.get(i).direction_tag);
+    }
+    tag_list.append(")");
+    Cursor direction_names =
+        db.getReadableDatabase().query("Directions",
+            new String[] { "tag", "title" }, tag_list.toString(), null, null,
+            null, null);
+    try {
+      HashMap<String, String> direction_tag2title =
+          new HashMap<String, String>(direction_names.getCount());
+      for (direction_names.moveToFirst(); !direction_names.isAfterLast(); direction_names.moveToNext()) {
+        direction_tag2title.put(direction_names.getString(0),
+            direction_names.getString(1));
+      }
+      return direction_tag2title;
+    } finally {
+      direction_names.close();
+    }
   }
 
   @Override
