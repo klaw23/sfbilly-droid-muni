@@ -8,8 +8,11 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
+import android.database.SQLException;
+import android.database.sqlite.SQLiteConstraintException;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.util.Log;
 
 /**
  * Stores the cached database of NextBus route and stop information.
@@ -362,8 +365,6 @@ final class Db extends SQLiteOpenHelper {
   /**
    * Adds 'stop' to the set of stops if it's not already present, and marks it
    * as serving route_tag.
-   * 
-   * @return the canonical Stop object for this stop.
    */
   public synchronized void addStop(Stop stop, long route_id) {
     final SQLiteDatabase tables = getWritableDatabase();
@@ -402,9 +403,14 @@ final class Db extends SQLiteOpenHelper {
       values.clear();
       values.put("stop", stop.tag);
       values.put("route", route_id);
-      // If this fails, it's because the stop/route association is already set
-      // up, which is fine.
-      tables.insert("StopRoutes", null, values);
+      try {
+        tables.insertOrThrow("StopRoutes", null, values);
+      } catch (SQLiteConstraintException e) {
+        // If this fails, it's because the stop/route association is already set
+        // up, which is fine.
+      } catch (SQLException e) {
+        Log.w("DroidMuni", "Unexpected exception from insert", e);
+      }
 
       tables.setTransactionSuccessful();
     } finally {
