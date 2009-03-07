@@ -91,13 +91,17 @@ public class NextMuniProvider extends ContentProvider {
   @Override
   public boolean onCreate() {
     db = new Db(getContext());
-    tryFetchRoutes(ForceCookieRequest.DO);
+    s_executor.execute(new Runnable() {
+      public void run() {
+        // Prime the routes list and cookie eagerly so it's more likely they'll
+        // be ready by the time we need them. Don't, however, block onCreate()
+        // until they finish since that'll block the UI thread even when we
+        // already have the routes list.
+        tryFetchRoutes(true);
+      }
+    });
     return true;
   }
-
-  enum ForceCookieRequest {
-    DO, DONT
-  };
 
   /**
    * If the database doesn't already have the list of routes, requests the list
@@ -106,14 +110,14 @@ public class NextMuniProvider extends ContentProvider {
    * they fail, we fail too in order to bound the maximum blocking time to a
    * single request timeout.
    * 
-   * @param force
-   *          If this is "FORCE...", always makes a request to get the cookies.
+   * @param force_cookie_request
+   *          If this is true, always makes a request to get the cookies.
    *          Otherwise, only makes a request when we actually need to retrieve
    *          the route information.
    * @return The routes, or null if this or a concurrent request failed.
    */
-  private void tryFetchRoutes(final ForceCookieRequest force) {
-    if (force == ForceCookieRequest.DONT && db.hasRoutes()) {
+  private void tryFetchRoutes(final boolean force_cookie_request) {
+    if (!force_cookie_request && db.hasRoutes()) {
       return;
     }
     final boolean routes_empty;
@@ -131,7 +135,7 @@ public class NextMuniProvider extends ContentProvider {
           }
         }
         if (someone_was_fetching_routes) {
-          if (force == ForceCookieRequest.DO) {
+          if (force_cookie_request) {
             getCookieAndRoutes(mIgnoreResponseHandler);
           }
           return;
@@ -155,7 +159,7 @@ public class NextMuniProvider extends ContentProvider {
             }
           }
         });
-      } else if (force == ForceCookieRequest.DO) {
+      } else if (force_cookie_request) {
         getCookieAndRoutes(mIgnoreResponseHandler);
       }
     } finally {
@@ -239,7 +243,7 @@ public class NextMuniProvider extends ContentProvider {
       String[] selectionArgs, String sortOrder) {
     switch (sURLMatcher.match(uri)) {
     case NEXT_MUNI_ROUTES:
-      tryFetchRoutes(ForceCookieRequest.DONT);
+      tryFetchRoutes(false);
       String[] COLUMNS = { "_id", "tag", "description" };
       Cursor result =
           db.getReadableDatabase().query("Routes", COLUMNS, null, null, null,
