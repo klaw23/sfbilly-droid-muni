@@ -20,6 +20,7 @@ import org.apache.http.impl.client.DefaultHttpClient;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.UriMatcher;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
@@ -85,12 +86,17 @@ public class NextMuniProvider extends ContentProvider {
   }
 
   private final DefaultHttpClient mClient = new DefaultHttpClient();
-  private Db db; // Set in onCreate() and never modified again.
   private boolean m_someone_fetching_routes = false; // Guarded by db.
+  // The next two fields are set in onCreate() and never modified again.
+  private Db db;
+  private Toast m_cookie_fail_toast;
 
   @Override
   public boolean onCreate() {
-    db = new Db(getContext());
+    Context context = getContext();
+    db = new Db(context);
+    m_cookie_fail_toast =
+        Toast.makeText(context, "Failed to get cookie", Toast.LENGTH_SHORT);
     s_executor.execute(new Runnable() {
       public void run() {
         // Prime the routes list and cookie eagerly so it's more likely they'll
@@ -188,14 +194,10 @@ public class NextMuniProvider extends ContentProvider {
       Log.d("DroidMuni", "Requesting " + init_request.getURI());
       return mClient.execute(init_request, handler);
     } catch (ClientProtocolException e) {
-      Toast.makeText(getContext(), "Cookie/route request failed." + e,
-          Toast.LENGTH_SHORT);
       Log.e("DroidMuni", "Cookie/route request failed.", e);
       init_request.abort();
       return false;
     } catch (IOException e) {
-      Toast.makeText(getContext(), "Cookie/route request failed." + e,
-          Toast.LENGTH_SHORT);
       Log.e("DroidMuni", "Cookie/route request failed.", e);
       init_request.abort();
       return false;
@@ -347,7 +349,7 @@ public class NextMuniProvider extends ContentProvider {
       // If the cookie has expired, retry once by recursing. If the cookie
       // request fails or the parse fails a second time, complain to the user.
       if (already_retried_cookie || !getCookieAndRoutes(mIgnoreResponseHandler)) {
-        Toast.makeText(getContext(), "Failed to get cookie", Toast.LENGTH_SHORT).show();
+        m_cookie_fail_toast.show();
         break;
       } else {
         return getAndParse(request_uri, parserT, true);
