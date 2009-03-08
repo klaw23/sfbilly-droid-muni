@@ -103,7 +103,11 @@ public class NextMuniProvider extends ContentProvider {
         // be ready by the time we need them. Don't, however, block onCreate()
         // until they finish since that'll block the UI thread even when we
         // already have the routes list.
-        tryFetchRoutes(true);
+        try {
+          tryFetchRoutes(true);
+        } catch (Exception e) {
+          Log.e("DroidMuni", "tryFetchRoutes failed", e);
+        }
       }
     });
     return true;
@@ -317,11 +321,11 @@ public class NextMuniProvider extends ContentProvider {
       // response gets closed.
       get_response = response.getEntity().getContent();
     } catch (ClientProtocolException e) {
-      Log.e("DroidMuni", "Cannot get directions: ", e);
+      Log.e("DroidMuni", "Cannot get " + request_uri, e);
       dir_request.abort();
       return null;
     } catch (IOException e) {
-      Log.e("DroidMuni", "Cannot get directions: ", e);
+      Log.e("DroidMuni", "Cannot get " + request_uri, e);
       dir_request.abort();
       return null;
     }

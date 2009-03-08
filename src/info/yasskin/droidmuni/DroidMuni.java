@@ -2,15 +2,8 @@ package info.yasskin.droidmuni;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 import android.app.Activity;
-import android.content.ContentResolver;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.MatrixCursor;
@@ -22,10 +15,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.text.SpannableStringBuilder;
 import android.text.style.RelativeSizeSpan;
-import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
-import android.widget.CursorAdapter;
 import android.widget.ListView;
 import android.widget.SimpleCursorAdapter;
 import android.widget.Spinner;
@@ -38,9 +29,6 @@ public class DroidMuni extends Activity {
    * Set once in onCreate() and never modified again.
    */
   private LocationManager m_location_manager;
-
-  private static final ExecutorService s_executor =
-      Executors.newCachedThreadPool();
 
   static final int REDRAW_INTERVAL_MS = 30000;
   static final int REPREDICT_INTERVAL_MS = 2 * 60000;
@@ -105,14 +93,17 @@ public class DroidMuni extends Activity {
     m_line_spinner = (Spinner) findViewById(R.id.line);
     m_line_adapter =
         setupSpinner(m_line_spinner, "description", mLineClickedHandler);
+    m_route_query_manager.setAdapter(m_line_adapter);
     queryRoutes();
 
     m_direction_spinner = (Spinner) findViewById(R.id.direction);
     m_direction_adapter =
         setupSpinner(m_direction_spinner, "title", mDirectionClickedHandler);
+    m_directions_query_manager.setAdapter(m_direction_adapter);
 
     m_stop_spinner = (Spinner) findViewById(R.id.stop);
     m_stop_adapter = setupSpinner(m_stop_spinner, "title", mStopClickedHandler);
+    m_stop_query_manager.setAdapter(m_stop_adapter);
 
     m_prediction_list = (ListView) findViewById(R.id.predictions);
     m_predictions_adapter =
@@ -174,31 +165,29 @@ public class DroidMuni extends Activity {
       }
     });
     m_prediction_list.setAdapter(m_predictions_adapter);
+    m_prediction_query_manager.setAdapter(m_predictions_adapter);
   }
 
-  /**
-   * 
-   */
   private void queryRoutes() {
-    resetCursor(m_line_adapter, m_loading_lines);
-    Future<Cursor> line_cursor =
-        backgroundQuery(NextMuniProvider.ROUTES_URI, null, null, null, null);
-    changeCursorWhenReadyAndThen(m_line_adapter, line_cursor,
-        m_line_request_failed, new Runnable() {
-          public void run() {
-            if (m_saved_line_selected != "") {
-              final Cursor cursor = m_line_adapter.getCursor();
-              final int tag_index = cursor.getColumnIndexOrThrow("tag");
-              for (cursor.moveToFirst(); !cursor.isAfterLast(); cursor.moveToNext()) {
-                if (cursor.getString(tag_index).equals(m_saved_line_selected)) {
-                  m_line_spinner.setSelection(cursor.getPosition());
-                  break;
-                }
+    m_route_query_manager.startQuery(getContentResolver(),
+        NextMuniProvider.ROUTES_URI, null, null, null, null);
+  }
+
+  private final AdapterQueryManager m_route_query_manager =
+      new AdapterQueryManager(m_loading_lines, m_line_request_failed) {
+        @Override
+        protected void onSuccessfulQuery(Cursor cursor) {
+          if (m_saved_line_selected != "") {
+            final int tag_index = cursor.getColumnIndexOrThrow("tag");
+            for (cursor.moveToFirst(); !cursor.isAfterLast(); cursor.moveToNext()) {
+              if (cursor.getString(tag_index).equals(m_saved_line_selected)) {
+                m_line_spinner.setSelection(cursor.getPosition());
+                break;
               }
             }
           }
-        });
-  }
+        }
+      };
 
   /**
    * Retrieves the preference named 'name' of type 'T' from 'pref'. If the
@@ -277,74 +266,6 @@ public class DroidMuni extends Activity {
     return adapter;
   }
 
-  /**
-   * Runs a query in the background and returns a Future representing its
-   * result.
-   * 
-   * @see ContentResolver.query
-   */
-  private Future<Cursor> backgroundQuery(final Uri uri,
-      final String[] projection, final String selection,
-      final String[] selectionArgs, final String sortOrder) {
-    return s_executor.submit(new Callable<Cursor>() {
-      public Cursor call() {
-        return getContentResolver().query(uri, projection, selection,
-            selectionArgs, sortOrder);
-      }
-    });
-  }
-
-  /**
-   * Waits for 'cursor' to be ready in a separate thread, then transfers back
-   * onto the UI threads, sets the received cursor into 'adapter', and calls
-   * and_then.run().
-   */
-  private void changeCursorWhenReadyAndThen(final CursorAdapter adapter,
-      final Future<Cursor> cursor, final Cursor on_failure,
-      final Runnable and_then) {
-    s_executor.execute(new Runnable() {
-      public void run() {
-        try {
-          final Cursor result = cursor.get();
-          if (result != null) {
-            m_handler.post(new Runnable() {
-              public void run() {
-                resetCursor(adapter, result);
-                if (and_then != null) {
-                  and_then.run();
-                }
-              }
-            });
-            return;
-          }
-        } catch (CancellationException e) {
-          // If the Future was cancelled, don't fill in the cursor with its
-          // result.
-          return;
-        } catch (InterruptedException e) {
-          // And if the thread was interrupted, just return.
-          return;
-        } catch (ExecutionException e) {
-          Log.e("DroidMuni", "query unexpectedly threw an exception", e);
-        }
-        m_handler.post(new Runnable() {
-          public void run() {
-            resetCursor(adapter, on_failure);
-          }
-        });
-      }
-    });
-  }
-
-  /**
-   * Sets adapter's Cursor to new_cursor in a way that will make the
-   * AdapterView's ItemSelectedListener get called.
-   */
-  private void resetCursor(final CursorAdapter adapter, final Cursor new_cursor) {
-    adapter.changeCursor(null);
-    adapter.changeCursor(new_cursor);
-  }
-
   private String getSelectedRoute() {
     final int position = m_line_spinner.getSelectedItemPosition();
     if (position == Spinner.INVALID_POSITION) {
@@ -396,34 +317,34 @@ public class DroidMuni extends Activity {
 
           final String selected_route = parent_item.getString(1);
           m_saved_line_selected = selected_route;
-          resetCursor(m_direction_adapter, m_loading_directions);
-          Future<Cursor> direction_data =
-              backgroundQuery(Uri.withAppendedPath(
-                  NextMuniProvider.DIRECTIONS_URI, selected_route), null, null,
-                  null, null);
-          changeCursorWhenReadyAndThen(m_direction_adapter, direction_data,
-              m_directions_request_failed, new Runnable() {
-                public void run() {
-                  final String prev_direction =
-                      m_prev_directions.get(selected_route);
-                  if (prev_direction == null) {
-                    // If we've never seen this route before, stay on the first
-                    // direction choice.
-                    return;
-                  }
-                  final Cursor directions = m_direction_adapter.getCursor();
-                  final int tag_index = directions.getColumnIndexOrThrow("tag");
-                  for (directions.moveToFirst(); !directions.isAfterLast(); directions.moveToNext()) {
-                    if (prev_direction.equals(directions.getString(tag_index))) {
-                      m_direction_spinner.setSelection(directions.getPosition());
-                    }
-                  }
-                }
-              });
+
+          m_directions_query_manager.startQuery(getContentResolver(),
+              Uri.withAppendedPath(NextMuniProvider.DIRECTIONS_URI,
+                  selected_route), null, null, null, null);
         }
 
         public void onNothingSelected(AdapterView<?> parent) {
           m_direction_adapter.changeCursor(null);
+        }
+      };
+
+  private final AdapterQueryManager m_directions_query_manager =
+      new AdapterQueryManager(m_loading_directions, m_directions_request_failed) {
+        @Override
+        protected void onSuccessfulQuery(final Cursor directions) {
+          final String prev_direction =
+              m_prev_directions.get(getSelectedRoute());
+          if (prev_direction == null) {
+            // If we've never seen this route before, stay on the first
+            // direction choice.
+            return;
+          }
+          final int tag_index = directions.getColumnIndexOrThrow("tag");
+          for (directions.moveToFirst(); !directions.isAfterLast(); directions.moveToNext()) {
+            if (prev_direction.equals(directions.getString(tag_index))) {
+              m_direction_spinner.setSelection(directions.getPosition());
+            }
+          }
         }
       };
 
@@ -443,17 +364,22 @@ public class DroidMuni extends Activity {
 
           m_prev_directions.put(selected_route, selected_direction);
 
-          resetCursor(m_stop_adapter, m_loading_stops);
-          Future<Cursor> stop_data =
-              backgroundQuery(Uri.withAppendedPath(NextMuniProvider.STOPS_URI,
+          m_stop_query_manager.startQuery(getContentResolver(),
+              Uri.withAppendedPath(NextMuniProvider.STOPS_URI,
                   selected_route + "/" + selected_direction), null, null, null,
-                  null);
-          changeCursorWhenReadyAndThen(m_stop_adapter, stop_data,
-              m_stop_request_failed, mSetStopToNearest);
+              null);
         }
 
         public void onNothingSelected(AdapterView<?> parent) {
           m_stop_adapter.changeCursor(null);
+        }
+      };
+
+  private final AdapterQueryManager m_stop_query_manager =
+      new AdapterQueryManager(m_loading_stops, m_stop_request_failed) {
+        @Override
+        protected void onSuccessfulQuery(Cursor cursor) {
+          mSetStopToNearest.run();
         }
       };
 
@@ -510,34 +436,32 @@ public class DroidMuni extends Activity {
           String selected_route = parent_item.getString(1);
           String selected_direction = parent_item.getString(2);
           String selected_stop = parent_item.getString(3);
-          resetCursor(m_predictions_adapter, m_loading_predictions);
           m_predictions_shown = false;
           m_handler.removeCallbacks(mRequeryPredictions);
-          Future<Cursor> prediction_data =
-              backgroundQuery(Uri.withAppendedPath(
-                  NextMuniProvider.PREDICTIONS_URI, selected_route + "/"
-                                                    + selected_direction + "/"
-                                                    + selected_stop), null,
-                  null, null, null);
-          changeCursorWhenReadyAndThen(m_predictions_adapter, prediction_data,
-              m_prediction_request_failed, new Runnable() {
-                public void run() {
-                  Cursor predictions = m_predictions_adapter.getCursor();
-                  if (predictions.getCount() == 0) {
-                    m_predictions_adapter.changeCursor(m_no_predictions);
-                  } else {
-                    m_predictions_shown = true;
-                    m_handler.postDelayed(mRequeryPredictions,
-                        REPREDICT_INTERVAL_MS);
-                  }
-                }
-              });
+          m_prediction_query_manager.startQuery(getContentResolver(),
+              Uri.withAppendedPath(NextMuniProvider.PREDICTIONS_URI,
+                  selected_route + "/" + selected_direction + "/"
+                      + selected_stop), null, null, null, null);
         }
 
         public void onNothingSelected(AdapterView<?> parent) {
           m_predictions_shown = false;
           m_handler.removeCallbacks(mRequeryPredictions);
           m_predictions_adapter.changeCursor(null);
+        }
+      };
+
+  private final AdapterQueryManager m_prediction_query_manager =
+      new AdapterQueryManager(m_loading_predictions,
+          m_prediction_request_failed) {
+        @Override
+        protected void onSuccessfulQuery(Cursor predictions) {
+          if (predictions.getCount() == 0) {
+            m_predictions_adapter.changeCursor(m_no_predictions);
+          } else {
+            m_predictions_shown = true;
+            m_handler.postDelayed(mRequeryPredictions, REPREDICT_INTERVAL_MS);
+          }
         }
       };
 
