@@ -10,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import android.app.Activity;
+import android.content.ContentResolver;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.MatrixCursor;
@@ -181,8 +182,7 @@ public class DroidMuni extends Activity {
   private void queryRoutes() {
     resetCursor(m_line_adapter, m_loading_lines);
     Future<Cursor> line_cursor =
-        managedBackgroundQuery(NextMuniProvider.ROUTES_URI, null, null, null,
-            null);
+        backgroundQuery(NextMuniProvider.ROUTES_URI, null, null, null, null);
     changeCursorWhenReadyAndThen(m_line_adapter, line_cursor,
         m_line_request_failed, new Runnable() {
           public void run() {
@@ -247,6 +247,16 @@ public class DroidMuni extends Activity {
     m_handler.removeCallbacks(mRedrawPredictionList);
   }
 
+  @Override
+  protected void onDestroy() {
+    super.onDestroy();
+    // Clear out all the adapters so their cursors get closed.
+    m_direction_adapter.changeCursor(null);
+    m_stop_adapter.changeCursor(null);
+    m_predictions_adapter.changeCursor(null);
+    m_line_adapter.changeCursor(null);
+  }
+
   /**
    * @param spinner
    * @param display_column
@@ -271,38 +281,17 @@ public class DroidMuni extends Activity {
    * Runs a query in the background and returns a Future representing its
    * result.
    * 
-   * @see Activity.managedQuery
+   * @see ContentResolver.query
    */
-  private Future<Cursor> managedBackgroundQuery(final Uri uri,
+  private Future<Cursor> backgroundQuery(final Uri uri,
       final String[] projection, final String selection,
       final String[] selectionArgs, final String sortOrder) {
     return s_executor.submit(new Callable<Cursor>() {
       public Cursor call() {
-        return managedQuery(uri, projection, selection, selectionArgs,
-            sortOrder);
+        return getContentResolver().query(uri, projection, selection,
+            selectionArgs, sortOrder);
       }
     });
-  }
-
-  /**
-   * Runs cursor.get() and handles exceptions appropriately for the result of
-   * Activity.managedQuery().
-   */
-  private Cursor getManagedQueryFuture(final Future<Cursor> cursor) {
-    try {
-      return cursor.get();
-    } catch (CancellationException e) {
-      // If the Future was cancelled, don't fill in
-      // the cursor with its result.
-      return null;
-    } catch (InterruptedException e) {
-      // And if the thread was interrupted, just
-      // return.
-      return null;
-    } catch (ExecutionException e) {
-      Log.e("DroidMuni", "managedQuery unexpectedly threw" + " an exception", e);
-      return null;
-    }
   }
 
   /**
@@ -315,23 +304,34 @@ public class DroidMuni extends Activity {
       final Runnable and_then) {
     s_executor.execute(new Runnable() {
       public void run() {
-        final Cursor result = getManagedQueryFuture(cursor);
-        if (result == null) {
-          m_handler.post(new Runnable() {
-            public void run() {
-              resetCursor(adapter, on_failure);
-            }
-          });
-        } else {
-          m_handler.post(new Runnable() {
-            public void run() {
-              resetCursor(adapter, result);
-              if (and_then != null) {
-                and_then.run();
+        try {
+          final Cursor result = cursor.get();
+          if (result != null) {
+            m_handler.post(new Runnable() {
+              public void run() {
+                resetCursor(adapter, result);
+                if (and_then != null) {
+                  and_then.run();
+                }
               }
-            }
-          });
+            });
+            return;
+          }
+        } catch (CancellationException e) {
+          // If the Future was cancelled, don't fill in the cursor with its
+          // result.
+          return;
+        } catch (InterruptedException e) {
+          // And if the thread was interrupted, just return.
+          return;
+        } catch (ExecutionException e) {
+          Log.e("DroidMuni", "query unexpectedly threw an exception", e);
         }
+        m_handler.post(new Runnable() {
+          public void run() {
+            resetCursor(adapter, on_failure);
+          }
+        });
       }
     });
   }
@@ -398,7 +398,7 @@ public class DroidMuni extends Activity {
           m_saved_line_selected = selected_route;
           resetCursor(m_direction_adapter, m_loading_directions);
           Future<Cursor> direction_data =
-              managedBackgroundQuery(Uri.withAppendedPath(
+              backgroundQuery(Uri.withAppendedPath(
                   NextMuniProvider.DIRECTIONS_URI, selected_route), null, null,
                   null, null);
           changeCursorWhenReadyAndThen(m_direction_adapter, direction_data,
@@ -445,10 +445,9 @@ public class DroidMuni extends Activity {
 
           resetCursor(m_stop_adapter, m_loading_stops);
           Future<Cursor> stop_data =
-              managedBackgroundQuery(Uri.withAppendedPath(
-                  NextMuniProvider.STOPS_URI, selected_route + "/"
-                                              + selected_direction), null,
-                  null, null, null);
+              backgroundQuery(Uri.withAppendedPath(NextMuniProvider.STOPS_URI,
+                  selected_route + "/" + selected_direction), null, null, null,
+                  null);
           changeCursorWhenReadyAndThen(m_stop_adapter, stop_data,
               m_stop_request_failed, mSetStopToNearest);
         }
@@ -515,7 +514,7 @@ public class DroidMuni extends Activity {
           m_predictions_shown = false;
           m_handler.removeCallbacks(mRequeryPredictions);
           Future<Cursor> prediction_data =
-              managedBackgroundQuery(Uri.withAppendedPath(
+              backgroundQuery(Uri.withAppendedPath(
                   NextMuniProvider.PREDICTIONS_URI, selected_route + "/"
                                                     + selected_direction + "/"
                                                     + selected_stop), null,
