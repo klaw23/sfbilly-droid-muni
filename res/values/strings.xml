@@ -1,13 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="hello">Hello World, DroidMuni</string>
-    <string name="app_name">DroidMuni</string>
-<string name="line">Line</string>
-<string name="direction">Direction</string>
-<string name="stop">Stop</string>
-
-
-
-
-
+  <string name="app_name">DroidMuni</string>
+  <string name="line">Line</string>
+  <string name="direction">Direction</string>
+  <string name="stop">Stop</string>
+  <string name="clear_cache">Clear cache</string>
+  <string name="cached_routes">Cached routes</string>
 </resources>

@@ -79,6 +79,14 @@ final class Db extends SQLiteOpenHelper {
     }
   }
 
+  /**
+   * Deletes the contents of all tables and sets things up as if the application
+   * had just been installed.
+   */
+  public void eraseEverything() {
+    onUpgrade(getWritableDatabase(), 0, 0);
+  }
+
   public static class Route {
     public Route(long id, int upstream_index, String tag, String description,
         long directions_updated_ms) {
