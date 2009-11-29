@@ -49,7 +49,7 @@ abstract class Parser {
   }
 
   public enum ResultState {
-    NOT_DONE, IO_ERROR, PARSE_ERROR, RETRY, MISSING_COOKIE, SUCCESS,
+    NOT_DONE, IO_ERROR, PARSE_ERROR, RETRY, SUCCESS,
   }
 
   public ResultState getResult() {
@@ -79,9 +79,8 @@ abstract class Parser {
       IOException;
 
   /**
-   * Parses a NextBus <Error> document. To see one of these, run 'curl
-   * http://www .nextmuni.com/s/COM.NextBus.Servlets.XMLFeed?command=routeConfig
-   * &a=sf-muni&r=71'
+   * Parses a NextBus <Error> document. To see one of these, go to 
+   * {@link http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=sf-muni&stopId=71}
    */
   private void parseError() throws XmlPullParserException, IOException {
     parser.require(XmlPullParser.START_TAG, null, "Error");
@@ -92,11 +91,8 @@ abstract class Parser {
       return;
     }
     String content = parser.nextText();
-    if (!content.contains("Feed can only be accessed by NextBus map page")) {
-      Log.w("DroidMuni", "Unexpected content: " + content
-                         + ". Trying again as if cookie was missing.");
-    }
-    result_state = ResultState.MISSING_COOKIE;
+    Log.w("DroidMuni", "NextBus error: " + content);
+    result_state = ResultState.PARSE_ERROR;
     return;
   }
 

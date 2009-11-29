@@ -8,14 +8,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
-import org.apache.http.client.ResponseHandler;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.BasicResponseHandler;
 import org.apache.http.impl.client.DefaultHttpClient;
 
 import android.content.ContentProvider;
@@ -28,7 +24,6 @@ import android.database.MatrixCursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.util.Log;
-import android.widget.Toast;
 
 public class NextMuniProvider extends ContentProvider {
   private static final ExecutorService s_executor =
@@ -89,22 +84,19 @@ public class NextMuniProvider extends ContentProvider {
   private boolean m_someone_fetching_routes = false; // Guarded by db.
   // The next two fields are set in onCreate() and never modified again.
   private Db db;
-  private Toast m_cookie_fail_toast;
 
   @Override
   public boolean onCreate() {
     Context context = getContext();
     db = new Db(context);
-    m_cookie_fail_toast =
-        Toast.makeText(context, "Failed to get cookie", Toast.LENGTH_SHORT);
     s_executor.execute(new Runnable() {
       public void run() {
-        // Prime the routes list and cookie eagerly so it's more likely they'll
-        // be ready by the time we need them. Don't, however, block onCreate()
-        // until they finish since that'll block the UI thread even when we
+        // Prime the routes list eagerly so it's more likely it'll
+        // be ready by the time we need it. Don't, however, block onCreate()
+        // until it finishes since that'll block the UI thread even when we
         // already have the routes list.
         try {
-          tryFetchRoutes(true);
+          tryFetchRoutes();
         } catch (Exception e) {
           Log.e("DroidMuni", "tryFetchRoutes failed", e);
         }
@@ -120,14 +112,10 @@ public class NextMuniProvider extends ContentProvider {
    * they fail, we fail too in order to bound the maximum blocking time to a
    * single request timeout.
    * 
-   * @param force_cookie_request
-   *          If this is true, always makes a request to get the cookies.
-   *          Otherwise, only makes a request when we actually need to retrieve
-   *          the route information.
    * @return The routes, or null if this or a concurrent request failed.
    */
-  private void tryFetchRoutes(final boolean force_cookie_request) {
-    if (!force_cookie_request && db.hasRoutes()) {
+  private void tryFetchRoutes() {
+    if (db.hasRoutes()) {
       return;
     }
     final boolean routes_empty;
@@ -145,9 +133,6 @@ public class NextMuniProvider extends ContentProvider {
           }
         }
         if (someone_was_fetching_routes) {
-          if (force_cookie_request) {
-            getCookieAndRoutes(mIgnoreResponseHandler);
-          }
           return;
         } else {
           m_someone_fetching_routes = true;
@@ -156,21 +141,7 @@ public class NextMuniProvider extends ContentProvider {
     }
     try {
       if (routes_empty) {
-        getCookieAndRoutes(new ResponseHandler<Boolean>() {
-          public Boolean handleResponse(HttpResponse response)
-              throws ClientProtocolException, IOException {
-            synchronized (db) {
-              if (!db.hasRoutes()) {
-                String route_string =
-                    new BasicResponseHandler().handleResponse(response);
-                db.setRoutes(parseRoutes(route_string));
-              }
-              return true;
-            }
-          }
-        });
-      } else if (force_cookie_request) {
-        getCookieAndRoutes(mIgnoreResponseHandler);
+        getRoutes();
       }
     } finally {
       synchronized (db) {
@@ -181,67 +152,19 @@ public class NextMuniProvider extends ContentProvider {
   }
 
   /**
-   * Downloads the list of routes to get its cookies. If the caller also needs
-   * the actual routes, they can pass a ResponseHandler to process them.
+   * Downloads the list of routes.
    * 
-   * @param handler
-   *          What to do with the HTTP result after we've pulled cookies out of
-   *          it.
    * @return true if the HTTP call succeeded.
    */
-  private Boolean getCookieAndRoutes(ResponseHandler<Boolean> handler) {
-    // Pull the cookies that let us request route information. We can
-    // pick up the route names and IDs along with them
-    HttpGet init_request =
-        new HttpGet(NextMuniUriBuilder.buildRouteListUri("sf-muni").toString());
-    try {
-      Log.d("DroidMuni", "Requesting " + init_request.getURI());
-      return mClient.execute(init_request, handler);
-    } catch (ClientProtocolException e) {
-      Log.e("DroidMuni", "Cookie/route request failed.", e);
-      init_request.abort();
-      return false;
-    } catch (IOException e) {
-      Log.e("DroidMuni", "Cookie/route request failed.", e);
-      init_request.abort();
+  private Boolean getRoutes() {
+    RouteListParser parser =
+        getAndParse(NextMuniUriBuilder.buildRouteListUri("sf-muni").toString(),
+            RouteListParser.class);
+    if (parser == null) {
       return false;
     }
-  }
-
-  private static final ResponseHandler<Boolean> mIgnoreResponseHandler =
-      new ResponseHandler<Boolean>() {
-        public Boolean handleResponse(HttpResponse response)
-            throws ClientProtocolException, IOException {
-          return Boolean.TRUE;
-        }
-      };
-
-  /**
-   * Match one route name block. Blocks look like:
-   * <tr>
-   * <td>
-   * 
-   * <input type="checkbox" id="J" value="checkbox"
-   * onClick="routeSelected('J')"> <script> if
-   * (window.opener.isRouteVisible('J')) { document.getElementById('J').checked
-   * = true; } </script></td>
-   * <td>J-Church</td>
-   * </tr>
-   */
-  private static final Pattern sRoutePattern =
-      Pattern.compile(
-          "<input type=\"checkbox\" id=\"([^\"]*)\".*?<td> ([^<]*) </td>",
-          Pattern.DOTALL);
-
-  private static Map<String, Db.Route> parseRoutes(String route_string) {
-    Map<String, Db.Route> result = new HashMap<String, Db.Route>();
-    Matcher m = sRoutePattern.matcher(route_string);
-    for (int upstream_index = 0; m.find(); upstream_index++) {
-      Db.Route route =
-          new Db.Route(-1, upstream_index, m.group(1), m.group(2), 0);
-      result.put(route.tag, route);
-    }
-    return result;
+    db.setRoutes(parser.getRoutes());
+    return true;
   }
 
   @Override
@@ -249,7 +172,7 @@ public class NextMuniProvider extends ContentProvider {
       String[] selectionArgs, String sortOrder) {
     switch (sURLMatcher.match(uri)) {
     case NEXT_MUNI_ROUTES:
-      tryFetchRoutes(false);
+      tryFetchRoutes();
       String[] COLUMNS = { "_id", "tag", "description" };
       Cursor result =
           db.getReadableDatabase().query("Routes", COLUMNS, null, null, null,
@@ -297,21 +220,6 @@ public class NextMuniProvider extends ContentProvider {
    */
   private <ParserT extends Parser> ParserT getAndParse(String request_uri,
       Class<ParserT> parserT) {
-    return getAndParse(request_uri, parserT, false);
-  }
-
-  /**
-   * Requests a URI from NextBus, parses it with the specified parser, and
-   * returns the parser if it succeeded.
-   * 
-   * @param request_uri
-   * @param already_retried_cookie
-   *          TODO
-   * @return
-   * @throws IllegalStateException
-   */
-  private <ParserT extends Parser> ParserT getAndParse(String request_uri,
-      Class<ParserT> parserT, boolean already_retried_cookie) {
     Log.i("DroidMuni", "Requesting " + request_uri);
     HttpGet dir_request = new HttpGet(request_uri);
     InputStream get_response;
@@ -349,15 +257,6 @@ public class NextMuniProvider extends ContentProvider {
     case NOT_DONE:
       Log.e("DroidMuni", "Parser didn't finish?!?");
       break;
-    case MISSING_COOKIE:
-      // If the cookie has expired, retry once by recursing. If the cookie
-      // request fails or the parse fails a second time, complain to the user.
-      if (already_retried_cookie || !getCookieAndRoutes(mIgnoreResponseHandler)) {
-        m_cookie_fail_toast.show();
-        break;
-      } else {
-        return getAndParse(request_uri, parserT, true);
-      }
     case IO_ERROR:
     case PARSE_ERROR:
       Log.e("DroidMuni", "Failed to parse response");
