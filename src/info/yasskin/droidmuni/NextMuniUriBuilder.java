@@ -2,13 +2,18 @@ package info.yasskin.droidmuni;
 
 import android.net.Uri;
 
+/**
+ * @see http://www.sfmta.com/cms/asite/nextmunidata.htm for the description of
+ *      the format.
+ */
 class NextMuniUriBuilder {
+  // Should be http://webservices.nextbus.com/service/publicXMLFeed?command=routeList&a=sf-muni
   private static final Uri s_route_list_base =
       Uri.parse("http://www.nextmuni.com/googleMap/routeSelector.jsp");
   private static final Uri s_route_details_base =
-      Uri.parse("http://www.nextmuni.com/s/COM.NextBus.Servlets.XMLFeed?command=routeConfig");
+      Uri.parse("http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig");
   private static final Uri s_multi_predictions_base =
-      Uri.parse("http://www.nextmuni.com/s/COM.NextBus.Servlets.XMLFeed?command=predictionsForMultiStops");
+      Uri.parse("http://webservices.nextbus.com/service/publicXMLFeed?command=predictionsForMultiStops");
 
   static Uri buildRouteListUri(String agency) {
     Uri.Builder builder = s_route_list_base.buildUpon();

@@ -53,24 +53,27 @@ public class PredictionsParser extends Parser {
     if (no_predictions_title == null) {
       final String route_tag = parser.getAttributeValue(null, "routeTag");
       while (parser.nextTag() == XmlPullParser.START_TAG) {
-        parseDirection(route_tag);
+        if (parseDirection(route_tag)) {
+        } else {
+          skipToEndOfTag();
+        }
       }
     } else {
       direction_title = no_predictions_title;
-      parser.nextText();
-      // Work around apparent bug on <tag>whitespace</tag>:
-      if (parser.getEventType() == XmlPullParser.TEXT) {
-        parser.nextTag();
-      }
+      skipToEndOfTag();
     }
     parser.require(XmlPullParser.END_TAG, null, "predictions");
   }
 
   /**
    * Parse a <direction> tag, which contains several <prediction> tags.
+   * @return true if we successfully parsed a <direction> tag.
    */
-  private void parseDirection(final String route_tag)
+  private boolean parseDirection(final String route_tag)
       throws XmlPullParserException, IOException {
+    if (XmlPullParser.START_TAG != parser.getEventType() || !"direction".equals(parser.getName())) {
+      return false;
+    }
     parser.require(XmlPullParser.START_TAG, null, "direction");
     this.direction_title = parser.getAttributeValue(null, "routeTitle");
     while (parser.nextTag() != XmlPullParser.END_TAG) {
@@ -84,5 +87,6 @@ public class PredictionsParser extends Parser {
       parser.nextText();
     }
     parser.require(XmlPullParser.END_TAG, null, "direction");
+    return true;
   }
 }
