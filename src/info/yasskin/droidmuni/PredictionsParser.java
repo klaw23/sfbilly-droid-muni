@@ -36,8 +36,10 @@ public class PredictionsParser extends Parser {
       if (parser.getName().equals("keyForNextTime")) {
         parser.nextText();
         continue;
+      } else if (parsePredictions()) {
+      } else {
+        skipToEndOfTag();
       }
-      parsePredictions();
     }
     parser.require(XmlPullParser.END_TAG, null, "body");
     this.result_state = ResultState.SUCCESS;
@@ -47,7 +49,11 @@ public class PredictionsParser extends Parser {
    * Parse a <predictions> tag, which corresponds to one route stopping at the
    * requested stop, and may contain several <direction> blocks.
    */
-  private void parsePredictions() throws XmlPullParserException, IOException {
+  private boolean parsePredictions() throws XmlPullParserException, IOException {
+    if (XmlPullParser.START_TAG != parser.getEventType()
+        || !"predictions".equals(parser.getName())) {
+      return false;
+    }
     parser.require(XmlPullParser.START_TAG, null, "predictions");
     String no_predictions_title =
         parser.getAttributeValue(null, "dirTitleBecauseNoPredictions");
@@ -63,6 +69,7 @@ public class PredictionsParser extends Parser {
       skipToEndOfTag();
     }
     parser.require(XmlPullParser.END_TAG, null, "predictions");
+    return true;
   }
 
   /**
