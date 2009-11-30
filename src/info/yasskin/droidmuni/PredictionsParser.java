@@ -2,6 +2,7 @@ package info.yasskin.droidmuni;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -17,13 +18,14 @@ public class PredictionsParser extends Parser {
     return predictions;
   }
 
-  public String getDirectionTitle() {
-    return direction_title;
+  public HashMap<String, String> getDirectionTag2Title() {
+    return direction_tag2title;
   }
 
-  private String direction_title;
   private final List<Db.Prediction> predictions =
       new ArrayList<Db.Prediction>();
+  private final HashMap<String, String> direction_tag2title =
+      new HashMap<String, String>();
 
   @Override
   protected void parseBody() throws XmlPullParserException, IOException {
@@ -42,9 +44,8 @@ public class PredictionsParser extends Parser {
   }
 
   /**
-   * Parse a <predictions> tag, which corresponds to one of the
-   * &stops=route||stop query parameters in the URL, and may contain several
-   * <direction> blocks.
+   * Parse a <predictions> tag, which corresponds to one route stopping at the
+   * requested stop, and may contain several <direction> blocks.
    */
   private void parsePredictions() throws XmlPullParserException, IOException {
     parser.require(XmlPullParser.START_TAG, null, "predictions");
@@ -59,7 +60,6 @@ public class PredictionsParser extends Parser {
         }
       }
     } else {
-      direction_title = no_predictions_title;
       skipToEndOfTag();
     }
     parser.require(XmlPullParser.END_TAG, null, "predictions");
@@ -67,15 +67,17 @@ public class PredictionsParser extends Parser {
 
   /**
    * Parse a <direction> tag, which contains several <prediction> tags.
+   * 
    * @return true if we successfully parsed a <direction> tag.
    */
   private boolean parseDirection(final String route_tag)
       throws XmlPullParserException, IOException {
-    if (XmlPullParser.START_TAG != parser.getEventType() || !"direction".equals(parser.getName())) {
+    if (XmlPullParser.START_TAG != parser.getEventType()
+        || !"direction".equals(parser.getName())) {
       return false;
     }
     parser.require(XmlPullParser.START_TAG, null, "direction");
-    this.direction_title = parser.getAttributeValue(null, "routeTitle");
+    String direction_title = getAttr("title");
     while (parser.nextTag() != XmlPullParser.END_TAG) {
       parser.require(XmlPullParser.START_TAG, null, "prediction");
       long epochTime = Long.parseLong(getAttr("epochTime"), 10);
@@ -84,6 +86,8 @@ public class PredictionsParser extends Parser {
       String block = getAttr("block");
       predictions.add(new Db.Prediction(route_tag, epochTime, isDeparture,
           dirTag, block));
+      // Record the names of the direction tags too.
+      direction_tag2title.put(dirTag, direction_title);
       parser.nextText();
     }
     parser.require(XmlPullParser.END_TAG, null, "direction");

@@ -393,7 +393,7 @@ public class NextMuniProvider extends ContentProvider {
     Collections.sort(predictions);
 
     HashMap<String, String> direction_tag2title =
-        buildDirectionTag2TitleMap(predictions);
+        parser.getDirectionTag2Title();
 
     String[] columns =
         { "_id", "route_tag", "direction_tag", "direction_title", "stop_id",
@@ -415,38 +415,6 @@ public class NextMuniProvider extends ContentProvider {
       row.add(prediction.predicted_time);
     }
     return result;
-  }
-
-  /**
-   * Given a list of predictions (each of which has a direction tag), returns a
-   * HashMap from the tags to their titles.
-   */
-  private HashMap<String, String> buildDirectionTag2TitleMap(
-      List<Db.Prediction> predictions) {
-    StringBuilder tag_list = new StringBuilder("tag IN (");
-    for (int i = 0; i < predictions.size(); i++) {
-      if (i > 0) {
-        tag_list.append(",");
-      }
-      DatabaseUtils.appendEscapedSQLString(tag_list,
-          predictions.get(i).direction_tag);
-    }
-    tag_list.append(")");
-    Cursor direction_names =
-        db.getReadableDatabase().query("Directions",
-            new String[] { "tag", "title" }, tag_list.toString(), null, null,
-            null, null);
-    try {
-      HashMap<String, String> direction_tag2title =
-          new HashMap<String, String>(direction_names.getCount());
-      for (direction_names.moveToFirst(); !direction_names.isAfterLast(); direction_names.moveToNext()) {
-        direction_tag2title.put(direction_names.getString(0),
-            direction_names.getString(1));
-      }
-      return direction_tag2title;
-    } finally {
-      direction_names.close();
-    }
   }
 
   @Override
