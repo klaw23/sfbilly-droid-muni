@@ -8,11 +8,8 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
-import android.database.SQLException;
-import android.database.sqlite.SQLiteConstraintException;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
-import android.util.Log;
 
 /**
  * Stores the cached database of NextBus route and stop information.
@@ -22,7 +19,7 @@ import android.util.Log;
  */
 final class Db extends SQLiteOpenHelper {
   public Db(Context context) {
-    super(context, "NextMUNIDb", null, 1);
+    super(context, "NextMUNIDb", null, 2);
   }
 
   @Override
@@ -43,17 +40,13 @@ final class Db extends SQLiteOpenHelper {
                  + "use_for_ui INTEGER," + "UNIQUE(route_id, tag))");
 
       db.execSQL("CREATE TABLE Stops (" + "_id INTEGER PRIMARY KEY,"
-                 + "title TEXT," + "latitude DOUBLE," + "longitude DOUBLE)");
+                 + "tag INTEGER," + "title TEXT," + "latitude DOUBLE,"
+                 + "longitude DOUBLE)");
 
       db.execSQL("CREATE TABLE DirectionStops ("
                  + "direction INTEGER REFERENCES Directions(_id),"
                  + "stop INTEGER REFERENCES Stops(_id),"
                  + "stop_order INTEGER," + "UNIQUE(direction, stop_order))");
-
-      db.execSQL("CREATE TABLE StopRoutes ("
-                 + "stop INTEGER REFERENCES Stops(_id),"
-                 + "route INTEGER REFERENCES Routes(_id),"
-                 + "UNIQUE(stop, route))");
 
       db.setTransactionSuccessful();
     } finally {
@@ -137,13 +130,15 @@ final class Db extends SQLiteOpenHelper {
   }
 
   public static class Stop {
-    public Stop(int tag, String title, double lat, double lon) {
+    public Stop(int id, int tag, String title, double lat, double lon) {
+      this.id = id;
       this.tag = tag;
       this.title = title;
       this.lat = lat;
       this.lon = lon;
     }
 
+    public final int id;
     public final int tag;
     public final String title;
     public final double lat;
@@ -344,35 +339,14 @@ final class Db extends SQLiteOpenHelper {
     for (int i = 0; i < new_direction.stops.size(); ++i) {
       stop_inserter.prepareForInsert();
       stop_inserter.bind(direction_index, direction_id);
-      stop_inserter.bind(stop_index, new_direction.stops.get(i).tag);
+      stop_inserter.bind(stop_index, new_direction.stops.get(i).id);
       stop_inserter.bind(stop_order_index, i);
       stop_inserter.execute();
     }
   }
 
-  public String[] routesThatStopAt(String stop_tag) {
-    Cursor routes =
-        getReadableDatabase().rawQuery(
-            "SELECT tag FROM StopRoutes JOIN Routes ON (route == _id)"
-                + " WHERE stop == ?", new String[] { stop_tag });
-    try {
-      if (routes.getCount() == 0) {
-        return null;
-      }
-      String[] result = new String[routes.getCount()];
-      int i = 0;
-      for (routes.moveToFirst(); !routes.isAfterLast(); routes.moveToNext(), i++) {
-        result[i] = routes.getString(0);
-      }
-      return result;
-    } finally {
-      routes.close();
-    }
-  }
-
   /**
-   * Adds 'stop' to the set of stops if it's not already present, and marks it
-   * as serving route_tag.
+   * Adds 'stop' to the set of stops if it's not already present.
    */
   public synchronized void addStop(Stop stop, long route_id) {
     final SQLiteDatabase tables = getWritableDatabase();
@@ -381,43 +355,34 @@ final class Db extends SQLiteOpenHelper {
       final ContentValues values = new ContentValues(4);
       final Cursor existing_stop =
           tables.query("Stops",
-              new String[] { "title", "latitude", "longitude" }, "_id == ?",
-              new String[] { stop.tag + "" }, null, null, null);
+              new String[] { "tag", "title", "latitude", "longitude" }, "_id == ?",
+              new String[] { stop.id + "" }, null, null, null);
       try {
         if (existing_stop.getCount() == 0) {
           values.clear();
-          values.put("_id", stop.tag);
+          values.put("_id", stop.id);
+          values.put("tag", stop.tag);
           values.put("title", stop.title);
           values.put("latitude", stop.lat);
           values.put("longitude", stop.lon);
           tables.insertOrThrow("Stops", null, values);
         } else {
           existing_stop.moveToFirst();
-          if (!existing_stop.getString(0).equals(stop.title)
-              || existing_stop.getDouble(1) != stop.lat
-              || existing_stop.getDouble(2) != stop.lon) {
+          if (existing_stop.getInt(0) != stop.tag
+              || !existing_stop.getString(1).equals(stop.title)
+              || existing_stop.getDouble(2) != stop.lat
+              || existing_stop.getDouble(3) != stop.lon) {
             values.clear();
+            values.put("tag", stop.tag);
             values.put("title", stop.title);
             values.put("latitude", stop.lat);
             values.put("longitude", stop.lon);
-            tables.update("Stops", values, "_id == ?", new String[] { stop.tag
+            tables.update("Stops", values, "_id == ?", new String[] { stop.id
                                                                       + "" });
           }
         }
       } finally {
         existing_stop.close();
-      }
-
-      values.clear();
-      values.put("stop", stop.tag);
-      values.put("route", route_id);
-      try {
-        tables.insertOrThrow("StopRoutes", null, values);
-      } catch (SQLiteConstraintException e) {
-        // If this fails, it's because the stop/route association is already set
-        // up, which is fine.
-      } catch (SQLException e) {
-        Log.w("DroidMuni", "Unexpected exception from insert", e);
       }
 
       tables.setTransactionSuccessful();

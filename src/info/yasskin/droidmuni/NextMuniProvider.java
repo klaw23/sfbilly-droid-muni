@@ -59,7 +59,7 @@ public class NextMuniProvider extends ContentProvider {
     sURLMatcher.addURI(AUTHORITY, "routes/#", NEXT_MUNI_ROUTE_ID);
     sURLMatcher.addURI(AUTHORITY, "directions/*", NEXT_MUNI_DIRECTIONS);
     sURLMatcher.addURI(AUTHORITY, "stops/*/*", NEXT_MUNI_STOPS);
-    sURLMatcher.addURI(AUTHORITY, "predictions/*/*/#", NEXT_MUNI_PREDICTIONS);
+    sURLMatcher.addURI(AUTHORITY, "predictions/#", NEXT_MUNI_PREDICTIONS);
   }
 
   @Override
@@ -188,8 +188,7 @@ public class NextMuniProvider extends ContentProvider {
       return queryStops("sf-muni", uri.getPathSegments().get(1),
           uri.getPathSegments().get(2));
     case NEXT_MUNI_PREDICTIONS:
-      return queryPredictions("sf-muni", uri.getPathSegments().get(1),
-          uri.getPathSegments().get(2), uri.getPathSegments().get(3));
+      return queryPredictions("sf-muni", uri.getPathSegments().get(1));
     default:
       throw new IllegalArgumentException("Unknown URI " + uri);
     }
@@ -363,7 +362,7 @@ public class NextMuniProvider extends ContentProvider {
     Cursor result =
         db.getReadableDatabase().rawQuery(
             "SELECT Stops._id AS _id, Routes.tag AS route_tag,"
-                + " Directions.tag AS direction_tag, Stops._id AS stop_tag,"
+                + " Directions.tag AS direction_tag, Stops._id AS stop_id,"
                 + " Stops.title AS title, latitude AS lat, longitude AS lon"
                 + " FROM Routes JOIN Directions"
                 + " ON (Routes._id == Directions.route_id)"
@@ -380,20 +379,9 @@ public class NextMuniProvider extends ContentProvider {
     return result;
   }
 
-  private Cursor queryPredictions(String agency_tag, String route_tag,
-      String direction_tag, String stop_tag) {
+  private Cursor queryPredictions(String agency_tag, String stop_id) {
     Uri prediction_uri = null;
-    String[] route_tags = db.routesThatStopAt(stop_tag);
-    if (route_tags != null) {
-      prediction_uri =
-          NextMuniUriBuilder.buildMultiPredictionUri(agency_tag, stop_tag,
-              route_tags);
-    }
-    if (prediction_uri == null) {
-      prediction_uri =
-          NextMuniUriBuilder.buildMultiPredictionUri(agency_tag, stop_tag,
-              route_tag);
-    }
+    prediction_uri = NextMuniUriBuilder.buildPredictionUri(agency_tag, stop_id);
 
     PredictionsParser parser =
         getAndParse(prediction_uri.toString(), PredictionsParser.class);
@@ -408,7 +396,7 @@ public class NextMuniProvider extends ContentProvider {
         buildDirectionTag2TitleMap(predictions);
 
     String[] columns =
-        { "_id", "route_tag", "direction_tag", "direction_title", "stop_tag",
+        { "_id", "route_tag", "direction_tag", "direction_title", "stop_id",
          "predicted_time" };
     MatrixCursor result = new MatrixCursor(columns);
     int id = 0;
@@ -423,7 +411,7 @@ public class NextMuniProvider extends ContentProvider {
       row.add(prediction.route_tag);
       row.add(prediction.direction_tag);
       row.add(direction_name);
-      row.add(stop_tag);
+      row.add(stop_id);
       row.add(prediction.predicted_time);
     }
     return result;

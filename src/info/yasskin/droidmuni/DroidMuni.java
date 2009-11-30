@@ -433,15 +433,12 @@ public class DroidMuni extends Activity {
             // TODO: Handle retries.
             return;
           }
-          String selected_route = parent_item.getString(1);
-          String selected_direction = parent_item.getString(2);
           String selected_stop = parent_item.getString(3);
           m_predictions_shown = false;
           m_handler.removeCallbacks(mRequeryPredictions);
           m_prediction_query_manager.startQuery(getContentResolver(),
               Uri.withAppendedPath(NextMuniProvider.PREDICTIONS_URI,
-                  selected_route + "/" + selected_direction + "/"
-                      + selected_stop), null, null, null, null);
+                  selected_stop), null, null, null, null);
         }
 
         public void onNothingSelected(AdapterView<?> parent) {

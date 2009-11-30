@@ -72,10 +72,9 @@ class RouteConfigParser extends Parser {
 	}
 
 	/**
-	 * Parses a NuxtBus <body> document. To see an example of one of these,
-	 * visit http://www.nextmuni.com/googleMap/routeSelector.jsp?a=sf-muni and
-	 * then http://www.nextmuni.com/s/COM.NextBus.Servlets.XMLFeed?command=
-	 * routeConfig&a=sf-muni&r=71
+	 * Parses a NextBus <body> document. To see an example of one of these,
+	 * visit 
+	 * http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig&a=sf-muni&r=71
 	 */
 	@Override
 	protected void parseBody() throws XmlPullParserException, IOException {
@@ -119,11 +118,12 @@ class RouteConfigParser extends Parser {
 	private void parseStop() throws XmlPullParserException, IOException {
 		parser.require(XmlPullParser.START_TAG, null, "stop");
 
-		int tag = Integer.parseInt(getAttr("tag"), 10);
+                int tag = Integer.parseInt(getAttr("tag"), 10);
+                int id = Integer.parseInt(getAttr("stopId"), 10);
 		String title = getAttr("title");
 		double lat = Double.parseDouble(getAttr("lat"));
 		double lon = Double.parseDouble(getAttr("lon"));
-		stops.put(tag, new Db.Stop(tag, title, lat, lon));
+		stops.put(tag, new Db.Stop(id, tag, title, lat, lon));
 		skipToEndOfTag();
 	}
 
