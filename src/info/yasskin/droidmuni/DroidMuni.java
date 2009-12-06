@@ -4,6 +4,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.MatrixCursor;
@@ -13,8 +16,12 @@ import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.text.Html;
 import android.text.SpannableStringBuilder;
+import android.text.method.LinkMovementMethod;
 import android.text.style.RelativeSizeSpan;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ListView;
@@ -244,6 +251,46 @@ public class DroidMuni extends Activity {
     m_stop_adapter.changeCursor(null);
     m_predictions_adapter.changeCursor(null);
     m_line_adapter.changeCursor(null);
+  }
+
+  @Override
+  public boolean onCreateOptionsMenu(Menu menu) {
+    getMenuInflater().inflate(R.menu.main, menu);
+    super.onCreateOptionsMenu(menu);
+    return true;
+  }
+
+  @Override
+  public boolean onOptionsItemSelected(MenuItem item) {
+    switch (item.getItemId()) {
+    case R.id.about:
+      showDialog(DIALOG_ABOUT_ID);
+      return true;
+    }
+    return false;
+  }
+
+  private static final int DIALOG_ABOUT_ID = 0;
+
+  @Override
+  protected Dialog onCreateDialog(int id) {
+    switch (id) {
+    case DIALOG_ABOUT_ID:
+      AlertDialog.Builder builder = new AlertDialog.Builder(this);
+      TextView view = new TextView(this);
+      // This MovementMethod follows links when clicked.
+      view.setMovementMethod(LinkMovementMethod.getInstance());
+      view.setText(Html.fromHtml(getString(R.string.about_dialog_contents)));
+      builder.setView(view);
+      builder.setNeutralButton(android.R.string.ok,
+          new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int id) {
+              dialog.dismiss();
+            }
+          });
+      return builder.create();
+    }
+    return null;
   }
 
   /**

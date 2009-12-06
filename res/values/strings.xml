@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="about">About</string>
   <string name="app_name">DroidMuni</string>
   <string name="line">Line</string>
   <string name="direction">Direction</string>
   <string name="stop">Stop</string>
   <string name="clear_cache">Clear cache</string>
   <string name="cached_routes">Cached routes</string>
+<string name="about_dialog_contents">&lt;big&gt;DroidMuni&lt;/big&gt;&lt;br/&gt;&lt;small&gt;By &lt;a href=&quot;jyasskin+droidmuni@gmail.com&quot;&gt;Jeffrey Yasskin&lt;/a&gt;&lt;/small&gt;&lt;p&gt;Thanks to &lt;a href=&quot;http://www.sfmta.com/cms/asite/nextmunidata.htm&quot;&gt;San Francisco Muni&lt;/a&gt; for the data!&lt;p&gt;Help out at &lt;br/&gt;&lt;a href=&quot;http://code.google.com/p/droid-muni/&quot;&gt;http://code.google.com/p/droid-muni/&lt;/a&gt;&lt;/p&gt;</string>
 </resources>
