@@ -19,13 +19,15 @@ import android.database.sqlite.SQLiteOpenHelper;
  */
 final class Db extends SQLiteOpenHelper {
   public Db(Context context) {
-    super(context, "NextMUNIDb", null, 2);
+    super(context, "NextMUNIDb", null, 3);
   }
 
   @Override
   public void onCreate(SQLiteDatabase db) {
     db.beginTransaction();
     try {
+      db.execSQL("CREATE TABLE RoutesUpdated (last_update INTEGER)");
+
       db.execSQL("CREATE TABLE Routes ("
                  + "_id INTEGER PRIMARY KEY AUTOINCREMENT,"
                  + "tag TEXT UNIQUE," + "upstream_index INTEGER,"
@@ -58,6 +60,7 @@ final class Db extends SQLiteOpenHelper {
   public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
     db.beginTransaction();
     try {
+      db.execSQL("DROP TABLE IF EXISTS RoutesUpdate");
       db.execSQL("DROP TABLE IF EXISTS Routes");
       db.execSQL("DROP TABLE IF EXISTS Directions");
       db.execSQL("DROP TABLE IF EXISTS Stops");
@@ -236,6 +239,13 @@ final class Db extends SQLiteOpenHelper {
       } finally {
         old_routes.close();
       }
+
+      // Update the "last updated" time to now.
+      tables.delete("RoutesUpdated", null, null);
+      ContentValues values = new ContentValues(1);
+      values.put("last_update", System.currentTimeMillis());
+      tables.insertOrThrow("RoutesUpdated", null, values);
+
       tables.setTransactionSuccessful();
     } finally {
       tables.endTransaction();
@@ -264,6 +274,30 @@ final class Db extends SQLiteOpenHelper {
   public boolean hasRoutes() {
     SQLiteDatabase tables = getReadableDatabase();
     return DatabaseUtils.queryNumEntries(tables, "Routes") > 0;
+  }
+
+  /**
+   * Looks up the time the routes were last updated and returns whether that's
+   * new enough.
+   * 
+   * @param time_millis
+   *          The oldest time the routes can have been updated for this method
+   *          to return true.
+   */
+  public boolean routesNewerThan(long time_millis) {
+    SQLiteDatabase tables = getReadableDatabase();
+    Cursor updated =
+        tables.query("RoutesUpdated", null, null, null, null, null, null);
+    try {
+      if (!updated.moveToFirst()) {
+        // Empty Cursor means routes were never updated.
+        return false;
+      }
+      long update_time = updated.getLong(0);
+      return update_time >= time_millis;
+    } finally {
+      updated.close();
+    }
   }
 
   /**
@@ -354,8 +388,8 @@ final class Db extends SQLiteOpenHelper {
     try {
       final ContentValues values = new ContentValues(4);
       final Cursor existing_stop =
-          tables.query("Stops",
-              new String[] { "tag", "title", "latitude", "longitude" }, "_id == ?",
+          tables.query("Stops", new String[] { "tag", "title", "latitude",
+                                              "longitude" }, "_id == ?",
               new String[] { stop.id + "" }, null, null, null);
       try {
         if (existing_stop.getCount() == 0) {

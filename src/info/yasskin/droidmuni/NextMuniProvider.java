@@ -82,7 +82,7 @@ public class NextMuniProvider extends ContentProvider {
 
   private final DefaultHttpClient mClient = new DefaultHttpClient();
   private boolean m_someone_fetching_routes = false; // Guarded by db.
-  // The next two fields are set in onCreate() and never modified again.
+  // The next field is set in onCreate() and never modified again.
   private Db db;
 
   @Override
@@ -96,7 +96,7 @@ public class NextMuniProvider extends ContentProvider {
         // until it finishes since that'll block the UI thread even when we
         // already have the routes list.
         try {
-          tryFetchRoutes();
+          tryFetchRoutes(REFETCH_ROUTES_BLOCK);
         } catch (Exception e) {
           Log.e("DroidMuni", "tryFetchRoutes failed", e);
         }
@@ -105,6 +105,9 @@ public class NextMuniProvider extends ContentProvider {
     return true;
   }
 
+  private static final int REFETCH_ROUTES_BLOCK = 0;
+  private static final int REFETCH_ROUTES_NOBLOCK = 1;
+
   /**
    * If the database doesn't already have the list of routes, requests the list
    * from NextMUNI. Uses m_someone_fetching_routes to make sure we only send one
@@ -112,17 +115,44 @@ public class NextMuniProvider extends ContentProvider {
    * they fail, we fail too in order to bound the maximum blocking time to a
    * single request timeout.
    * 
+   * @param block_on_refetch_routes
+   *          REFETCH_ROUTES_BLOCK or REFETCH_ROUTES_NOBLOCK, depending on
+   *          whether this call should block on refetching the routes. The
+   *          method always blocks when fetching the routes for the first time.
+   * 
    * @return The routes, or null if this or a concurrent request failed.
    */
-  private void tryFetchRoutes() {
+  private void tryFetchRoutes(int block_on_refetch_routes) {
+    final long oldest_acceptable_routes = System.currentTimeMillis() - ONE_DAY;
     if (db.hasRoutes()) {
-      return;
+      if (db.routesNewerThan(oldest_acceptable_routes)) {
+        // If we already have new-enough routes, return without doing any work.
+        return;
+      }
+      if (block_on_refetch_routes == REFETCH_ROUTES_NOBLOCK) {
+        // If our routes exist but are too old, and the caller doesn't want to
+        // block, spawn this task into the background pool and
+        // return immediately.
+        s_executor.execute(new Runnable() {
+          public void run() {
+            try {
+              tryFetchRoutes(REFETCH_ROUTES_BLOCK);
+            } catch (Exception e) {
+              Log.e("DroidMuni", "tryFetchRoutes failed", e);
+            }
+          }
+        });
+        return;
+      }
+      // Otherwise our routes exist and are too old, and we're already in a
+      // background thread, so we can block. Continue into the main function.
     }
-    final boolean routes_empty;
+
+    final boolean routes_outdated;
     final boolean someone_was_fetching_routes;
     synchronized (db) {
-      routes_empty = !db.hasRoutes();
-      if (routes_empty) {
+      routes_outdated = !db.routesNewerThan(oldest_acceptable_routes);
+      if (routes_outdated) {
         someone_was_fetching_routes = m_someone_fetching_routes;
         while (m_someone_fetching_routes) {
           try {
@@ -140,7 +170,7 @@ public class NextMuniProvider extends ContentProvider {
       }
     }
     try {
-      if (routes_empty) {
+      if (routes_outdated) {
         getRoutes();
       }
     } finally {
@@ -172,7 +202,7 @@ public class NextMuniProvider extends ContentProvider {
       String[] selectionArgs, String sortOrder) {
     switch (sURLMatcher.match(uri)) {
     case NEXT_MUNI_ROUTES:
-      tryFetchRoutes();
+      tryFetchRoutes(REFETCH_ROUTES_NOBLOCK);
       String[] COLUMNS = { "_id", "tag", "description" };
       Cursor result =
           db.getReadableDatabase().query("Routes", COLUMNS, null, null, null,
