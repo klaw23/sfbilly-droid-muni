@@ -32,7 +32,7 @@ public class NextMuniProvider extends ContentProvider {
   private static final long ONE_DAY = 24 * 3600 * 1000;
   private static final long ONE_MONTH = 30 * ONE_DAY;
 
-  private static final String AUTHORITY =
+  public static final String AUTHORITY =
       "info.yasskin.droidmuni.nextmuniprovider";
   public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY);
 
