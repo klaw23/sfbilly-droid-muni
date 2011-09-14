@@ -18,6 +18,9 @@ public class AdapterQueryManager {
   private CursorAdapter m_adapter;
   private final Cursor m_loading_cursor;
   private final Cursor m_failed_cursor;
+  private ContentResolver m_content_resolver;
+  private Uri m_current_query_uri;
+  private boolean m_uri_has_succeeded;
   private QueryTask m_current_query;
 
   private class QueryTask extends AsyncTask<Void, Void, Void> {
@@ -94,12 +97,36 @@ public class AdapterQueryManager {
    * Must be called from the UI thread.
    */
   final public void startQuery(ContentResolver content_resolver, final Uri uri) {
+    m_content_resolver = content_resolver;
+    m_current_query_uri = uri;
+    m_uri_has_succeeded = false;
+
     resetCursor(m_loading_cursor);
 
     if (m_current_query != null) {
       m_current_query.cancel(/* mayInterruptIfRunning= */true);
+      m_current_query = null;
     }
-    m_current_query = new QueryTask(content_resolver, uri);
+    requery();
+  }
+
+  /**
+   * Re-runs the previous query with the same parameters to see if its results
+   * have changed, unless it's still running.
+   * 
+   * Arranges that if the requery fails, we don't replace the old result with
+   * m_failed_cursor.
+   */
+  final public void requery() {
+    if (m_current_query_uri == null) {
+      throw new IllegalStateException(
+          "Must call startQuery() before requery().");
+    }
+    if (m_current_query != null
+        && m_current_query.getStatus() != AsyncTask.Status.FINISHED) {
+      return;
+    }
+    m_current_query = new QueryTask(m_content_resolver, m_current_query_uri);
     m_current_query.execute();
   }
 
@@ -132,15 +159,18 @@ public class AdapterQueryManager {
   /**
    * Subclasses can override this method to define what happens with the result
    * of a query. By default, if the result is non-null it is set into the
-   * adapter and then onSuccessfulQuery is called. If the result is null, the
-   * failed cursor is set into the adapter.
+   * adapter and then onSuccessfulQuery is called. If the result is null and
+   * this wasn't a requery, the failed cursor is set into the adapter.
    * 
    * This will be called on the UI thread.
    */
   protected void onQueryComplete(Cursor cursor) {
     if (cursor == null) {
-      resetCursor(m_failed_cursor);
+      if (!m_uri_has_succeeded) {
+        resetCursor(m_failed_cursor);
+      }
     } else {
+      m_uri_has_succeeded = true;
       resetCursor(cursor);
       onSuccessfulQuery(cursor);
     }

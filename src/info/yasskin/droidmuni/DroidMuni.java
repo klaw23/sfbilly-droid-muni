@@ -505,7 +505,7 @@ public class DroidMuni extends Activity {
   private boolean m_predictions_shown = false;
   private final Runnable mRequeryPredictions = new Runnable() {
     public void run() {
-      m_predictions_adapter.getCursor().requery();
+      m_prediction_query_manager.requery();
 
       m_handler.postDelayed(this, REPREDICT_INTERVAL_MS);
     }
