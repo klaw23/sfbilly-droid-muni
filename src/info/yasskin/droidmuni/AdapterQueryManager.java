@@ -1,14 +1,9 @@
 package info.yasskin.droidmuni;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-
 import android.content.ContentResolver;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Handler;
-import android.os.Message;
+import android.os.AsyncTask;
 import android.util.Log;
 import android.widget.CursorAdapter;
 
@@ -19,17 +14,51 @@ import android.widget.CursorAdapter;
  * 
  * Must be constructed from the UI thread.
  */
-class AdapterQueryManager extends Handler {
-  private static final ExecutorService s_executor =
-      Executors.newCachedThreadPool();
-
-  // Each query gets a unique token that is higher than all previous tokens. We
-  // use this to ignore outdated queries.
-  private int m_next_token = 0;
-  private Future<?> m_current_query = null;
+class AdapterQueryManager {
   private CursorAdapter m_adapter;
   private final Cursor m_loading_cursor;
   private final Cursor m_failed_cursor;
+  private QueryTask m_current_query;
+
+  private class QueryTask extends AsyncTask<Void, Void, Void> {
+    private final ContentResolver m_content_resolver;
+    private final Uri m_query_uri;
+
+    private Cursor m_cursor_result = null;
+    private Throwable m_exception_result = null;
+
+    public QueryTask(ContentResolver content_resolver, Uri uri) {
+      m_content_resolver = content_resolver;
+      m_query_uri = uri;
+    }
+
+    @Override
+    protected Void doInBackground(Void... params) {
+      try {
+        m_cursor_result =
+            m_content_resolver.query(m_query_uri, null, null, null, null);
+      } catch (Throwable e) {
+        m_exception_result = e;
+      }
+      return null;
+    }
+
+    @Override
+    protected void onPostExecute(Void result) {
+      if (m_exception_result != null) {
+        onException(m_exception_result);
+      } else {
+        onQueryComplete(m_cursor_result);
+      }
+    }
+
+    @Override
+    protected void onCancelled() {
+      if (m_cursor_result != null) {
+        m_cursor_result.close();
+      }
+    }
+  }
 
   public AdapterQueryManager(Cursor loading_cursor, Cursor failed_cursor) {
     m_loading_cursor = loading_cursor;
@@ -44,63 +73,14 @@ class AdapterQueryManager extends Handler {
    * 
    * Must be called from the UI thread.
    */
-  final public void startQuery(final ContentResolver cr, final Uri uri,
-      final String[] projection, final String selection,
-      final String[] selectionArgs, final String orderBy) {
+  final public void startQuery(ContentResolver content_resolver, final Uri uri) {
     resetCursor(m_loading_cursor);
 
-    final int token = ++m_next_token;
     if (m_current_query != null) {
-      m_current_query.cancel(true);
+      m_current_query.cancel(/* mayInterruptIfRunning= */true);
     }
-    m_current_query = s_executor.submit(new Runnable() {
-      public void run() {
-        final Message msg = Message.obtain();
-        try {
-          msg.obj =
-              cr.query(uri, projection, selection, selectionArgs, orderBy);
-          msg.what = CURSOR;
-        } catch (Throwable e) {
-          msg.what = EXCEPTION;
-          msg.obj = e;
-        }
-        msg.arg1 = token;
-        sendMessage(msg);
-      }
-    });
-  }
-
-  final static int CURSOR = 0;
-  final static int EXCEPTION = 1;
-
-  /**
-   * Dispatches a result Cursor to onQueryComplete if it's a response to the
-   * newest query.
-   * 
-   * @see android.os.Handler#handleMessage(android.os.Message)
-   */
-  @Override
-  final public void handleMessage(Message msg) {
-    switch (msg.what) {
-    case CURSOR:
-      Cursor cursor = (Cursor) msg.obj;
-      if (msg.arg1 != m_next_token) {
-        // This response is outdated.
-        if (cursor != null) {
-          cursor.close();
-        }
-        return;
-      }
-      onQueryComplete(cursor);
-      break;
-    case EXCEPTION:
-      if (msg.arg1 != m_next_token) {
-        // This response is outdated.
-        return;
-      }
-      onException((Throwable) msg.obj);
-      break;
-    }
+    m_current_query = new QueryTask(content_resolver, uri);
+    m_current_query.execute();
   }
 
   final protected void resetCursor(Cursor new_cursor) {

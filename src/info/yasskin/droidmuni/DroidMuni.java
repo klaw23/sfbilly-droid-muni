@@ -177,7 +177,7 @@ public class DroidMuni extends Activity {
 
   private void queryRoutes() {
     m_route_query_manager.startQuery(getContentResolver(),
-        NextMuniProvider.ROUTES_URI, null, null, null, null);
+        NextMuniProvider.ROUTES_URI);
   }
 
   private final AdapterQueryManager m_route_query_manager =
@@ -367,7 +367,7 @@ public class DroidMuni extends Activity {
 
           m_directions_query_manager.startQuery(getContentResolver(),
               Uri.withAppendedPath(NextMuniProvider.DIRECTIONS_URI,
-                  selected_route), null, null, null, null);
+                  selected_route));
         }
 
         public void onNothingSelected(AdapterView<?> parent) {
@@ -413,8 +413,7 @@ public class DroidMuni extends Activity {
 
           m_stop_query_manager.startQuery(getContentResolver(),
               Uri.withAppendedPath(NextMuniProvider.STOPS_URI,
-                  selected_route + "/" + selected_direction), null, null, null,
-              null);
+                  selected_route + "/" + selected_direction));
         }
 
         public void onNothingSelected(AdapterView<?> parent) {
@@ -485,7 +484,7 @@ public class DroidMuni extends Activity {
           m_handler.removeCallbacks(mRequeryPredictions);
           m_prediction_query_manager.startQuery(getContentResolver(),
               Uri.withAppendedPath(NextMuniProvider.PREDICTIONS_URI,
-                  selected_stop), null, null, null, null);
+                  selected_stop));
         }
 
         public void onNothingSelected(AdapterView<?> parent) {
