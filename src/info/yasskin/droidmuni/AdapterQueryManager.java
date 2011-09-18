@@ -60,7 +60,7 @@ class AdapterQueryManager extends Handler {
           msg.obj =
               cr.query(uri, projection, selection, selectionArgs, orderBy);
           msg.what = CURSOR;
-        } catch (Exception e) {
+        } catch (Throwable e) {
           msg.what = EXCEPTION;
           msg.obj = e;
         }
@@ -98,7 +98,7 @@ class AdapterQueryManager extends Handler {
         // This response is outdated.
         return;
       }
-      onException((Exception) msg.obj);
+      onException((Throwable) msg.obj);
       break;
     }
   }
@@ -158,7 +158,7 @@ class AdapterQueryManager extends Handler {
    * an exception. The default is to log an error and set the failed cursor into
    * the adapter. This will be called on the UI thread.
    */
-  protected void onException(Exception e) {
+  protected void onException(Throwable e) {
     Log.e("DroidMuni", "query unexpectedly threw an exception", e);
     resetCursor(m_failed_cursor);
   }
