@@ -57,24 +57,24 @@ public class DroidMuni extends Activity {
   private SimpleCursorAdapter m_stop_adapter;
   private SimpleCursorAdapter m_predictions_adapter;
 
-  private static final Cursor m_loading_lines =
-      makeConstantCursor("description", "Loading lines...");
-  private static final Cursor m_line_request_failed =
-      makeConstantCursor("description", "Line request failed", "Retry");
-  private static final Cursor m_loading_directions =
-      makeConstantCursor("title", "Loading directions...");
-  private static final Cursor m_directions_request_failed =
-      makeConstantCursor("title", "Direction request failed", "Retry");
-  private static final Cursor m_loading_stops =
-      makeConstantCursor("title", "Loading stops...");
-  private static final Cursor m_stop_request_failed =
-      makeConstantCursor("title", "Stop request failed", "Retry");
-  private static final Cursor m_loading_predictions =
-      makeConstantCursor("predicted_time", "Loading predictions...");
-  private static final Cursor m_prediction_request_failed =
-      makeConstantCursor("predicted_time", "Prediction request failed");
-  private static final Cursor m_no_predictions =
-      makeConstantCursor("predicted_time", "No predictions");
+  private static final Cursor m_loading_lines = makeConstantCursor(
+      "description", "Loading lines...");
+  private static final Cursor m_line_request_failed = makeConstantCursor(
+      "description", "Line request failed", "Retry");
+  private static final Cursor m_loading_directions = makeConstantCursor(
+      "title", "Loading directions...");
+  private static final Cursor m_directions_request_failed = makeConstantCursor(
+      "title", "Direction request failed", "Retry");
+  private static final Cursor m_loading_stops = makeConstantCursor("title",
+      "Loading stops...");
+  private static final Cursor m_stop_request_failed = makeConstantCursor(
+      "title", "Stop request failed", "Retry");
+  private static final Cursor m_loading_predictions = makeConstantCursor(
+      "predicted_time", "Loading predictions...");
+  private static final Cursor m_prediction_request_failed = makeConstantCursor(
+      "predicted_time", "Prediction request failed");
+  private static final Cursor m_no_predictions = makeConstantCursor(
+      "predicted_time", "No predictions");
 
   private static Cursor makeConstantCursor(String column_name, String... rows) {
     MatrixCursor result =
