@@ -7,7 +7,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.DialogInterface;
-import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.location.Criteria;
@@ -24,23 +23,24 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
+import android.widget.AdapterView.OnItemSelectedListener;
 import android.widget.ListView;
 import android.widget.SimpleCursorAdapter;
 import android.widget.Spinner;
 import android.widget.TextView;
-import android.widget.AdapterView.OnItemSelectedListener;
 
 public class DroidMuni extends Activity {
   private final Handler m_handler = new Handler();
+
   /**
    * Set once in onCreate() and never modified again.
    */
   private LocationManager m_location_manager;
+  private PreferenceManager m_preferences_manager;
 
   static final int REDRAW_INTERVAL_MS = 30000;
   static final int REPREDICT_INTERVAL_MS = 2 * 60000;
 
-  private String m_saved_line_selected;
   /**
    * Maps a route tag to the direction tag that was last selected for it.
    */
@@ -94,8 +94,7 @@ public class DroidMuni extends Activity {
     super.onCreate(savedInstanceState);
     m_location_manager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
-    SharedPreferences pref = getPreferences(MODE_PRIVATE);
-    this.m_saved_line_selected = safeGet(pref, String.class, "line", "");
+    m_preferences_manager = new PreferenceManager(this);
 
     this.setContentView(R.layout.main);
 
@@ -186,10 +185,11 @@ public class DroidMuni extends Activity {
       new AdapterQueryManager(m_loading_lines, m_line_request_failed) {
         @Override
         protected void onSuccessfulQuery(Cursor cursor) {
-          if (m_saved_line_selected != "") {
+          final String saved_line = m_preferences_manager.getSavedLine();
+          if (saved_line != "") {
             final int tag_index = cursor.getColumnIndexOrThrow("tag");
             for (cursor.moveToFirst(); !cursor.isAfterLast(); cursor.moveToNext()) {
-              if (cursor.getString(tag_index).equals(m_saved_line_selected)) {
+              if (cursor.getString(tag_index).equals(saved_line)) {
                 m_line_spinner.setSelection(cursor.getPosition());
                 break;
               }
@@ -197,20 +197,6 @@ public class DroidMuni extends Activity {
           }
         }
       };
-
-  /**
-   * Retrieves the preference named 'name' of type 'T' from 'pref'. If the
-   * preference is not present or has the wrong type, returns 'defalt'.
-   */
-  @SuppressWarnings("unchecked")
-  private static <T> T safeGet(SharedPreferences pref, Class<T> type,
-      String name, T defalt) {
-    Object value = pref.getAll().get(name);
-    if (value == null || !type.isInstance(value)) {
-      return defalt;
-    }
-    return (T) value;
-  }
 
   @Override
   protected void onStart() {
@@ -233,9 +219,7 @@ public class DroidMuni extends Activity {
 
     m_handler.removeCallbacks(mRequeryPredictions);
 
-    SharedPreferences.Editor editor = this.getPreferences(MODE_PRIVATE).edit();
-    editor.putString("line", this.m_saved_line_selected);
-    editor.commit();
+    m_preferences_manager.apply();
   }
 
   @Override
@@ -365,7 +349,7 @@ public class DroidMuni extends Activity {
           }
 
           final String selected_route = parent_item.getString(1);
-          m_saved_line_selected = selected_route;
+          m_preferences_manager.setSelectedLine(selected_route);
 
           m_directions_query_manager.startQuery(getContentResolver(),
               Uri.withAppendedPath(NextMuniProvider.DIRECTIONS_URI,
