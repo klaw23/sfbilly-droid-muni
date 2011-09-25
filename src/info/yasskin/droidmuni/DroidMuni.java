@@ -16,9 +16,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.text.Html;
-import android.text.SpannableStringBuilder;
 import android.text.method.LinkMovementMethod;
-import android.text.style.RelativeSizeSpan;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -115,60 +113,34 @@ public class DroidMuni extends Activity {
 
     m_prediction_list = (ListView) findViewById(R.id.predictions);
     m_predictions_adapter =
-        new SimpleCursorAdapter(this, android.R.layout.simple_list_item_1,
-            null,
-            // TODO: Show the destination, but only when it's not
-            // totally
-            // determined by the route (e.x. 31 Inbound & 38
-            // Outbound).
+        new SimpleCursorAdapter(this, R.layout.prediction_list_item, null,
+        // TODO: Show the destination, but only when it's not
+        // totally
+        // determined by the route (e.x. 31 Inbound & 38
+        // Outbound).
             new String[] { "predicted_time" }, new int[] { android.R.id.text1 });
     m_predictions_adapter.setViewBinder(new SimpleCursorAdapter.ViewBinder() {
       public boolean setViewValue(View view, Cursor cursor, int columnIndex) {
-        if (!(view instanceof TextView)) {
+        if (!(view instanceof OnePredictionView)) {
           return false;
         }
-        TextView textview = (TextView) view;
+        OnePredictionView prediction_view = (OnePredictionView) view;
         if (cursor == m_loading_predictions
             || cursor == m_prediction_request_failed
             || cursor == m_no_predictions) {
-          textview.setText(cursor.getString(columnIndex));
+          prediction_view.setNoPredictionText(cursor.getString(columnIndex));
           return true;
         }
-        final int route_index = cursor.getColumnIndexOrThrow("route_tag");
-        final int direction_title_index =
-            cursor.getColumnIndexOrThrow("direction_title");
-        final int direction_tag_index =
-            cursor.getColumnIndexOrThrow("direction_tag");
-        long expected_arrival = cursor.getLong(columnIndex);
-        long now = System.currentTimeMillis();
-        long delta_minutes = (expected_arrival - now) / 60000;
-        String ago = "";
-        String plural = "";
-        if (delta_minutes < 0) {
-          ago = " ago";
-          delta_minutes = -delta_minutes;
-        }
-        if (delta_minutes != 1) {
-          plural = "s";
-        }
-        SpannableStringBuilder text = new SpannableStringBuilder();
-        text.append(delta_minutes + "").append(" minute").append(plural).append(
-            ago);
+        prediction_view.setNoPredictionText("");
 
-        String route_tag = cursor.getString(route_index);
-        String direction_title = cursor.getString(direction_title_index);
-        if (!cursor.getString(direction_tag_index).equals(
-            getSelectedDirection())) {
-          final int small_start = text.length();
-          text.append("  (");
-          if (!route_tag.equals(getSelectedRoute())) {
-            text.append(route_tag).append(" ");
-          }
-          text.append(direction_title).append(")");
-          text.setSpan(new RelativeSizeSpan(0.7f), small_start, text.length(),
-              0);
-        }
-        textview.setText(text);
+        prediction_view.setExpectedArrival(cursor.getLong(columnIndex));
+        prediction_view.setQueryRouteTag(getSelectedRoute());
+        prediction_view.setQueryDirectionTag(getSelectedDirection());
+        prediction_view.setPredictionRouteTag(cursor.getString(cursor.getColumnIndexOrThrow("route_tag")));
+        prediction_view.setPredictionDirectionTag(cursor.getString(cursor.getColumnIndexOrThrow("direction_tag")));
+        prediction_view.setPredictionDirectionTitle(cursor.getString(cursor.getColumnIndexOrThrow("direction_title")));
+
+        prediction_view.update();
         return true;
       }
     });
