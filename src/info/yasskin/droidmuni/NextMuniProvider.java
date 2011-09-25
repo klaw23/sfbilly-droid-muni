@@ -6,8 +6,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
@@ -26,9 +24,6 @@ import android.net.Uri;
 import android.util.Log;
 
 public class NextMuniProvider extends ContentProvider {
-  private static final ExecutorService s_executor =
-      Executors.newCachedThreadPool();
-
   private static final long ONE_DAY = 24 * 3600 * 1000;
   private static final long ONE_MONTH = 30 * ONE_DAY;
 
@@ -36,14 +31,14 @@ public class NextMuniProvider extends ContentProvider {
       "info.yasskin.droidmuni.nextmuniprovider";
   public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY);
 
-  public static final Uri ROUTES_URI =
-      Uri.withAppendedPath(CONTENT_URI, "routes");
-  public static final Uri DIRECTIONS_URI =
-      Uri.withAppendedPath(CONTENT_URI, "directions");
+  public static final Uri ROUTES_URI = Uri.withAppendedPath(CONTENT_URI,
+      "routes");
+  public static final Uri DIRECTIONS_URI = Uri.withAppendedPath(CONTENT_URI,
+      "directions");
   public static final Uri STOPS_URI =
       Uri.withAppendedPath(CONTENT_URI, "stops");
-  public static final Uri PREDICTIONS_URI =
-      Uri.withAppendedPath(CONTENT_URI, "predictions");
+  public static final Uri PREDICTIONS_URI = Uri.withAppendedPath(CONTENT_URI,
+      "predictions");
 
   private static final int NEXT_MUNI_ROUTES = 0;
   private static final int NEXT_MUNI_ROUTE_ID = 1;
@@ -51,8 +46,8 @@ public class NextMuniProvider extends ContentProvider {
   private static final int NEXT_MUNI_STOPS = 4;
   private static final int NEXT_MUNI_PREDICTIONS = 5;
 
-  private static final UriMatcher sURLMatcher =
-      new UriMatcher(UriMatcher.NO_MATCH);
+  private static final UriMatcher sURLMatcher = new UriMatcher(
+      UriMatcher.NO_MATCH);
 
   static {
     sURLMatcher.addURI(AUTHORITY, "routes", NEXT_MUNI_ROUTES);
@@ -89,7 +84,7 @@ public class NextMuniProvider extends ContentProvider {
   public boolean onCreate() {
     Context context = getContext();
     db = new Db(context);
-    s_executor.execute(new Runnable() {
+    Globals.EXECUTOR.execute(new Runnable() {
       public void run() {
         // Prime the routes list eagerly so it's more likely it'll
         // be ready by the time we need it. Don't, however, block onCreate()
@@ -133,7 +128,7 @@ public class NextMuniProvider extends ContentProvider {
         // If our routes exist but are too old, and the caller doesn't want to
         // block, spawn this task into the background pool and
         // return immediately.
-        s_executor.execute(new Runnable() {
+        Globals.EXECUTOR.execute(new Runnable() {
           public void run() {
             try {
               tryFetchRoutes(REFETCH_ROUTES_BLOCK);
@@ -356,7 +351,7 @@ public class NextMuniProvider extends ContentProvider {
     } else if (last_directions_update < now - ONE_DAY) {
       // The data is a little stale, so update it in the background, but
       // return quickly with the cached data.
-      s_executor.execute(new Runnable() {
+      Globals.EXECUTOR.execute(new Runnable() {
         public void run() {
           fillDbForRoute(agency_tag, the_route);
         }
