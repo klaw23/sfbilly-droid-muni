@@ -89,6 +89,8 @@ public class DroidMuni extends Activity {
   /** Called when the activity is first created. */
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    Compatibility.enableStrictMode();
+
     super.onCreate(savedInstanceState);
     m_location_manager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
