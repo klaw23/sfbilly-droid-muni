@@ -17,6 +17,13 @@ public class OnePredictionViewTest extends AndroidTestCase {
     protected long now() {
       return fake_now;
     }
+
+    /**
+     * @return the time the super class has scheduled the next call to update().
+     */
+    public long getNextUpdateTime() {
+      return m_next_visible_change;
+    }
   }
 
   private TestPredictionView m_view;
@@ -34,32 +41,43 @@ public class OnePredictionViewTest extends AndroidTestCase {
 
   public void testSameDirectionVariousTimes() {
     m_view.setExpectedArrival(10600 * 1000);
+    m_view.fake_now = 10000 * 1000;
     m_view.update();
-
     Spanned text = (Spanned) m_view.getText();
     assertEquals("10 minutes", text.toString());
     Object styles[] = text.getSpans(0, text.length(), Object.class);
     assertEquals(0, styles.length);
+    assertEquals(10000 * 1000 + 1, m_view.getNextUpdateTime());
+
+    m_view.fake_now = 10000 * 1000 + 1;
+    m_view.update();
+    assertEquals("9 minutes", m_view.getText().toString());
+    assertEquals(10060 * 1000 + 1, m_view.getNextUpdateTime());
 
     m_view.fake_now = 10539 * 1000;
     m_view.update();
     assertEquals("1 minute", m_view.getText().toString());
+    assertEquals(10540 * 1000 + 1, m_view.getNextUpdateTime());
 
     m_view.fake_now = 10599 * 1000;
     m_view.update();
     assertEquals("0 minutes", m_view.getText().toString());
+    assertEquals(10660 * 1000, m_view.getNextUpdateTime());
 
     m_view.fake_now = 10659 * 1000;
     m_view.update();
     assertEquals("0 minutes", m_view.getText().toString());
+    assertEquals(10660 * 1000, m_view.getNextUpdateTime());
 
     m_view.fake_now = 10660 * 1000;
     m_view.update();
     assertEquals("1 minute ago", m_view.getText().toString());
+    assertEquals(10720 * 1000, m_view.getNextUpdateTime());
 
     m_view.fake_now = 11140 * 1000;
     m_view.update();
     assertEquals("9 minutes ago", m_view.getText().toString());
+    assertEquals(11200 * 1000, m_view.getNextUpdateTime());
   }
 
   public void testDifferentDirectionSameRoute() {

@@ -114,10 +114,6 @@ public class DroidMuni extends Activity {
     m_prediction_list = (ListView) findViewById(R.id.predictions);
     m_predictions_adapter =
         new SimpleCursorAdapter(this, R.layout.prediction_list_item, null,
-        // TODO: Show the destination, but only when it's not
-        // totally
-        // determined by the route (e.x. 31 Inbound & 38
-        // Outbound).
             new String[] { "predicted_time" }, new int[] { android.R.id.text1 });
     m_predictions_adapter.setViewBinder(new SimpleCursorAdapter.ViewBinder() {
       public boolean setViewValue(View view, Cursor cursor, int columnIndex) {
@@ -171,13 +167,6 @@ public class DroidMuni extends Activity {
       };
 
   @Override
-  protected void onStart() {
-    super.onStart();
-    // Start the re-drawing loop for the prediction list.
-    m_handler.postDelayed(mRedrawPredictionList, REDRAW_INTERVAL_MS);
-  }
-
-  @Override
   protected void onResume() {
     super.onResume();
     if (this.m_predictions_shown) {
@@ -192,13 +181,6 @@ public class DroidMuni extends Activity {
     m_handler.removeCallbacks(mRequeryPredictions);
 
     m_preferences_manager.apply();
-  }
-
-  @Override
-  protected void onStop() {
-    super.onStop();
-    // No need to re-draw when we're invisible.
-    m_handler.removeCallbacks(mRedrawPredictionList);
   }
 
   @Override
@@ -465,14 +447,6 @@ public class DroidMuni extends Activity {
           }
         }
       };
-
-  private final Runnable mRedrawPredictionList = new Runnable() {
-    public void run() {
-      m_prediction_list.invalidate();
-
-      m_handler.postDelayed(this, REDRAW_INTERVAL_MS);
-    }
-  };
 
   private boolean m_predictions_shown = false;
   private final Runnable mRequeryPredictions = new Runnable() {
