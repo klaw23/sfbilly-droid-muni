@@ -367,15 +367,19 @@ final class Db extends SQLiteOpenHelper {
     // Going to be inserting a bunch into DirectionStops...
     DatabaseUtils.InsertHelper stop_inserter =
         new DatabaseUtils.InsertHelper(tables, "DirectionStops");
-    int direction_index = stop_inserter.getColumnIndex("direction");
-    int stop_index = stop_inserter.getColumnIndex("stop");
-    int stop_order_index = stop_inserter.getColumnIndex("stop_order");
-    for (int i = 0; i < new_direction.stops.size(); ++i) {
-      stop_inserter.prepareForInsert();
-      stop_inserter.bind(direction_index, direction_id);
-      stop_inserter.bind(stop_index, new_direction.stops.get(i).id);
-      stop_inserter.bind(stop_order_index, i);
-      stop_inserter.execute();
+    try {
+      int direction_index = stop_inserter.getColumnIndex("direction");
+      int stop_index = stop_inserter.getColumnIndex("stop");
+      int stop_order_index = stop_inserter.getColumnIndex("stop_order");
+      for (int i = 0; i < new_direction.stops.size(); ++i) {
+        stop_inserter.prepareForInsert();
+        stop_inserter.bind(direction_index, direction_id);
+        stop_inserter.bind(stop_index, new_direction.stops.get(i).id);
+        stop_inserter.bind(stop_order_index, i);
+        stop_inserter.execute();
+      }
+    } finally {
+      stop_inserter.close();
     }
   }
 

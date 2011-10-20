@@ -14,7 +14,7 @@ import android.widget.CursorAdapter;
  * 
  * Must be constructed from the UI thread.
  */
-class AdapterQueryManager {
+public class AdapterQueryManager {
   private CursorAdapter m_adapter;
   private final Cursor m_loading_cursor;
   private final Cursor m_failed_cursor;
@@ -35,9 +35,26 @@ class AdapterQueryManager {
     @Override
     protected Void doInBackground(Void... params) {
       try {
-        m_cursor_result =
+        Cursor result =
             m_content_resolver.query(m_query_uri, null, null, null, null);
+        synchronized (this) {
+          if (isCancelled()) {
+            // If cancel() was called before the isCancelled() check,
+            // onCancelled may run before or after this synchronized block.
+            // Either way, it will find m_cursor_result==null and so not try to
+            // double-close the cursor.
+            result.close();
+          } else {
+            // Otherwise, if cancel() is called between the isCancelled() check
+            // and when returning from doInBackground() fills in the Future
+            // inside AsyncTask, the onCancelled() call will block until it can
+            // acquire this's lock and then will find the cursor it needs to
+            // close in m_cursor_result.
+            m_cursor_result = result;
+          }
+        }
       } catch (Throwable e) {
+        Log.v("DroidMuni", "Exception from ContentResolver", e);
         m_exception_result = e;
       }
       return null;
@@ -52,9 +69,12 @@ class AdapterQueryManager {
       }
     }
 
+    // Due to a bug in AsyncTask before Honeycomb, onCancelled() can run
+    // concurrently with doInBackground().
     @Override
-    protected void onCancelled() {
+    protected synchronized void onCancelled() {
       if (m_cursor_result != null) {
+        // doInBackground() has already returned.
         m_cursor_result.close();
       }
     }
