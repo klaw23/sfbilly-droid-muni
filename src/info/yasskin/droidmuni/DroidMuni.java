@@ -170,27 +170,32 @@ public class DroidMuni extends Activity {
     requestWindowFeature(Window.FEATURE_NO_TITLE);
     cxt = this;
 
+    int MINUTES_BETWEEN_LOCATION_UPDATES = 2;
+
+    // Try to get location service; test for null since user may block location
+    // tracking
     m_location_manager = (LocationManager) getSystemService(LOCATION_SERVICE);
-    m_location_manager.requestLocationUpdates(
-        m_location_manager.getBestProvider(new Criteria(), true),
-        (long) 1000.0 * 60 * 2, (float) 100.0, // request update every 2 minutes
-                                               // or 100 meters
-        new LocationListener() {
-          public void onLocationChanged(Location location) {
-            Log.i("DroidMuni", "Accuracy: " + location.getAccuracy());
-          }
+    if (m_location_manager != null) {
+      m_location_manager.requestLocationUpdates(
+          m_location_manager.getBestProvider(new Criteria(), true),
+          // Request loc updates every X minutes or Y meters
+          (long) 1000.0 * 60 * MINUTES_BETWEEN_LOCATION_UPDATES, (float) 100.0,
+          new LocationListener() {
+            public void onLocationChanged(Location location) {
+              Log.i("DroidMuni", "Accuracy: " + location.getAccuracy());
+            }
 
-          public void onProviderDisabled(String provider) {
-          }
+            public void onProviderDisabled(String provider) {
+            }
 
-          public void onProviderEnabled(String provider) {
-          }
+            public void onProviderEnabled(String provider) {
+            }
 
-          public void onStatusChanged(String provider, int status, Bundle extras) {
-          }
-
-        });
-    
+            public void onStatusChanged(String provider, int status,
+                Bundle extras) {
+            }
+          });
+    }
     
     m_preferences_manager = new PreferenceManager(this);
 
