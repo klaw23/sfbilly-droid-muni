@@ -2,12 +2,48 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
-    android:background="#242629"
     android:orientation="vertical" >
 
+  <LinearLayout
+      android:id="@+id/linearLayout1"
+      android:layout_width="fill_parent"
+      android:layout_height="wrap_content" android:background="#505050">
+
+      <TextView
+          android:id="@+id/labelRoute"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:gravity="left|center_vertical"
+          android:text="Route"
+          android:textAppearance="?android:attr/textAppearanceSmall" android:paddingBottom="8sp" android:paddingTop="8sp" android:textColor="#ffffff" android:width="54sp" android:paddingLeft="6sp"/>
+
+      <TextView
+          android:id="@+id/labelInbound"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:text="Inbound"
+          android:textAppearance="?android:attr/textAppearanceSmall" android:gravity="left|center_vertical" android:textColor="#ffffff" android:paddingLeft="3sp"/>
+
+      <TextView
+          android:id="@+id/labelOutbound"
+          android:layout_width="fill_parent"
+          android:layout_height="wrap_content"
+          android:text="Outbound"
+          android:textAppearance="?android:attr/textAppearanceSmall" android:gravity="right|center_vertical" android:paddingRight="5sp" android:textColor="#ffffff"/>
+
+  </LinearLayout>
+  
+      <View
+        android:layout_width="fill_parent"
+        android:layout_height="2dp"
+        android:background="#a00000" android:layout_marginBottom="10sp"/>
+      
   <ListView
-    android:id="@+id/multistop_predictions"
-    android:layout_height="wrap_content"
-    android:layout_width="fill_parent" android:background="#000000"/>
+      android:id="@+id/multistop_predictions"
+      android:layout_width="fill_parent"
+      android:layout_height="fill_parent"
+      android:layout_weight="1"
+      android:background="#000000" android:dividerHeight="2sp" android:divider="#a00000">
+  </ListView>
   
 </LinearLayout>

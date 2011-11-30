@@ -13,7 +13,6 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.database.Cursor;
 import android.database.MatrixCursor;
-import android.graphics.Color;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
@@ -28,16 +27,13 @@ import android.support.v4.view.ViewPager;
 import android.text.Html;
 import android.text.method.LinkMovementMethod;
 import android.util.Log;
-import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemSelectedListener;
-import android.widget.BaseAdapter;
-import android.widget.LinearLayout;
+import android.widget.ArrayAdapter;
 import android.widget.ListView;
 import android.widget.SimpleCursorAdapter;
 import android.widget.Spinner;
@@ -176,25 +172,30 @@ public class DroidMuni extends Activity {
     // tracking
     m_location_manager = (LocationManager) getSystemService(LOCATION_SERVICE);
     if (m_location_manager != null) {
-      m_location_manager.requestLocationUpdates(
-          m_location_manager.getBestProvider(new Criteria(), true),
-          // Request loc updates every X minutes or Y meters
-          (long) 1000.0 * 60 * MINUTES_BETWEEN_LOCATION_UPDATES, (float) 100.0,
-          new LocationListener() {
-            public void onLocationChanged(Location location) {
-              Log.i("DroidMuni", "Accuracy: " + location.getAccuracy());
-            }
+      String provider =
+          m_location_manager.getBestProvider(new Criteria(),/* enabled_only= */
+              true);
+      if (provider != null) {
+        m_location_manager.requestLocationUpdates(provider,
+            // Request loc updates every X minutes or Y meters
+            (long) 1000.0 * 60 * MINUTES_BETWEEN_LOCATION_UPDATES,
+            (float) 100.0, new LocationListener() {
+              public void onLocationChanged(Location location) {
+                if (location != null)
+                  Log.i("DroidMuni", "Accuracy: " + location.getAccuracy());
+              }
 
-            public void onProviderDisabled(String provider) {
-            }
+              public void onProviderDisabled(String provider) {
+              }
 
-            public void onProviderEnabled(String provider) {
-            }
+              public void onProviderEnabled(String provider) {
+              }
 
-            public void onStatusChanged(String provider, int status,
-                Bundle extras) {
-            }
-          });
+              public void onStatusChanged(String provider, int status,
+                  Bundle extras) {
+              }
+            });
+      }
     }
     
     m_preferences_manager = new PreferenceManager(this);
@@ -204,17 +205,19 @@ public class DroidMuni extends Activity {
     // Note the helpful title indicator below comes from
     // http://blog.stylingandroid.com/archives/537
     // or see https://github.com/JakeWharton/Android-ViewPagerIndicator
-    
+
     muniPager = (ViewPager) findViewById(R.id.munipager);
     muniPager.setAdapter(new DroidMuniPagerAdapter());
-    
-    TitlePageIndicator indicator = (TitlePageIndicator) findViewById(R.id.indicator);    
+
+    TitlePageIndicator indicator =
+        (TitlePageIndicator) findViewById(R.id.indicator);
     indicator.setViewPager(muniPager);
     indicator.setFooterColor(0xffa00000);
     indicator.setFooterIndicatorStyle(IndicatorStyle.Underline);
     indicator.setFooterLineHeight(3);
-    
+
     muniPager.setCurrentItem(1);
+
   }
 
   private void queryRoutes() {
@@ -487,22 +490,42 @@ public class DroidMuni extends Activity {
    * @param v View object of Nearby UI pane
    */
   private void buildListOfClosestStops(View v) {
-    // 1. Get my location
-    if (m_location_manager == null)
+    // Temporary list view while stops are loading
+    String no_location =
+        "\nCan't determine location;\nCheck Settings > Location";
+    m_multistop_list =
+        (ListView) DroidMuni.this.findViewById(R.id.multistop_predictions);
+
+    if (m_location_manager == null) {
+      m_multistop_list.setAdapter(new ArrayAdapter<String>(this,
+          android.R.layout.simple_list_item_1, new String[] { no_location }));
       return;
+    }
 
     final String provider_name =
         m_location_manager.getBestProvider(new Criteria(), true);
-    if (provider_name == null)
+
+    if (provider_name == null) {
+      m_multistop_list.setAdapter(new ArrayAdapter<String>(this,
+          android.R.layout.simple_list_item_1, new String[] { no_location }));
       return;
+    }
 
     if (m_location_manager.isProviderEnabled(provider_name))
       Log.i("DroidMuni", "Provider is disabled: " + provider_name);
 
     final Location my_location =
         m_location_manager.getLastKnownLocation(provider_name);
-    if (my_location == null)
+
+    if (my_location == null) {
+      m_multistop_list.setAdapter(new ArrayAdapter<String>(this,
+          android.R.layout.simple_list_item_1, new String[] { no_location }));
       return;
+    }
+
+    m_multistop_list.setAdapter(new ArrayAdapter<String>(this,
+        android.R.layout.simple_list_item_1,
+        new String[] { "\nScanning for closest stops..." }));
 
     new ClosestStops().execute(my_location);
   }
@@ -510,11 +533,11 @@ public class DroidMuni extends Activity {
   private class ClosestStops extends
       AsyncTask<Location, Integer, Vector<ExtendedStop>> {
 
-    /*
-     * protected void onProgressUpdate(Integer... progress) { TextView tv =
-     * (TextView) findViewById(R.id.textView1); if (tv != null)
-     * tv.setText("Loading Line Data... " + progress[0] + "%"); }
-     */
+    protected void onProgressUpdate(Integer... progress) {
+      TextView tv = (TextView) findViewById(R.id.labelRoute);
+      if (tv != null)
+        tv.setText("" + progress[0] + "%");
+    }
 
     @Override
     protected Vector<ExtendedStop> doInBackground(
@@ -541,7 +564,6 @@ public class DroidMuni extends Activity {
         int num_attempted = 0;
 
       for (routes.moveToFirst(); !routes.isAfterLast(); routes.moveToNext()) {
-
         String route = routes.getString(route_tag);
         num_attempted++;
         if (num_attempted % 7 == 0)
@@ -645,33 +667,20 @@ public class DroidMuni extends Activity {
     @Override
     protected void onPostExecute(Vector<ExtendedStop> sorted_stops) {
 
-      for (int id = 0; id < NUM_CLOSEST_STOPS && id < sorted_stops.size(); id++) {
-        
-        String txt = "";
-        ExtendedStop myStop = sorted_stops.elementAt(id);
-        
-        for (String route : myStop.keySet()) {
-          txt += "\n" + route;                   
-          TreeMap<String, Vector<Long>> directionMap = myStop.get(route);
+      TextView tv = (TextView) findViewById(R.id.labelRoute);
+      if (tv != null)
+        tv.setText("Route");
 
-          for (String direction : directionMap.keySet()) {
-            txt += "\n" + direction + ": ";
-            for (Long prediction : directionMap.get(direction)) {
-                txt = txt + prediction + ", ";
-            }
-            txt = txt.substring(0, txt.length()-2);            
-          }
-        }
-        txt = txt.substring(1);
+      if (sorted_stops.isEmpty()) {
+        return;
       }
-
       
-      // Set up listview connection to multistop adapter
       m_multistop_adapter = new MultiStopAdapter(sorted_stops);
-
       m_multistop_list =
           (ListView) DroidMuni.this.findViewById(R.id.multistop_predictions);
-      m_multistop_list.setAdapter(m_multistop_adapter);
+
+      if (m_multistop_list != null)
+        m_multistop_list.setAdapter(m_multistop_adapter);
     }
 
   }    
@@ -871,114 +880,6 @@ class LocationAwareStop implements Comparable<LocationAwareStop> {
 
   public String toString() {
     return stop_id + ":" + title;
-  }
-}
-
-class MultiStopAdapter extends BaseAdapter {
-
-  private Vector<ExtendedStop> m_items;
-
-  public MultiStopAdapter(Vector<ExtendedStop> items) {
-    this.m_items = items;
-  }
-
-  public int getCount() {
-    return m_items.size();
-  }
-
-  public Object getItem(int position) {
-    return m_items.get(position);
-  }
-
-  public long getItemId(int position) {
-    return position;
-  }
-
-  public TextView getFancyRouteImage(String route, Context ctx) {
-    TextView view = new TextView(ctx);
-    view.setPadding(4, 4, 4, 4);
-
-    switch (route.substring(0,1).toCharArray()[0]) {
-    case 'J':
-      view.setBackgroundResource(R.drawable.j64);
-      break;
-    case 'K':
-      view.setBackgroundResource(R.drawable.k64);
-      break;
-    case 'L':
-      view.setBackgroundResource(R.drawable.l64);
-      break;
-    case 'M':
-      view.setBackgroundResource(R.drawable.m64);
-      break;
-    case 'N':
-      view.setBackgroundResource(R.drawable.n64);
-      break;
-    case 'T':
-      view.setBackgroundResource(R.drawable.t64);
-      break;
-    default:
-      if (route.contains("L")) { // Note the L-Taraval will have already been
-                                 // caught, so this "must" be an express bus..
-        view.setBackgroundResource(R.drawable.exprbus64);
-      } else {
-        view.setBackgroundResource(R.drawable.bus64);
-      }
-
-      // Add text for bus route number since we don't have graphics for all of
-      // them
-      view.setText(route);
-      view.setTextSize(36);
-      view.setTextColor(Color.WHITE);
-      view.setGravity(Gravity.CENTER_VERTICAL | Gravity.CENTER_HORIZONTAL);
-      break;
-    }
-
-    return view;
-  }
-
-  public View getView(int position, View convertView, ViewGroup parent) {
-    Context ctx = parent.getContext();
-    ExtendedStop stop = m_items.elementAt(position);
-
-    LinearLayout ll = (LinearLayout) View.inflate(ctx, R.layout.stop_row, null);
-    ((TextView) ll.findViewById(R.id.textViewStopName)).setText(stop.stop_title);
-
-    LinearLayout row_holder =
-        (LinearLayout) ll.findViewById(R.id.predictionRow);
-
-    for (String route_name : stop.keySet()) {
-      // Add a new major row for this route, with route icon
-      LinearLayout route = new LinearLayout(ctx);
-      route.setOrientation(LinearLayout.HORIZONTAL);
-      row_holder.addView(route);
-      TextView routeIcon = getFancyRouteImage(route_name, ctx);
-      LinearLayout direction_rows = new LinearLayout(ctx);
-      direction_rows.setOrientation(LinearLayout.VERTICAL);
-      route.addView(routeIcon);
-      route.addView(direction_rows);
-
-      TreeMap<String, Vector<Long>> directionMap = stop.get(route_name);
-
-      for (String direction : directionMap.keySet()) {
-        TextView dir_text = new TextView(ctx);
-        dir_text.setText(direction);
-        direction_rows.addView(dir_text);
-        String txt = "";
-        for (Long prediction : directionMap.get(direction)) {
-          txt = txt + prediction + ", ";
-        }
-        txt = txt.substring(0, txt.length() - 2);
-
-        TextView predictions = new TextView(ctx);
-        predictions.setText(txt);
-        direction_rows.addView(predictions);
-      }
-    }
-
-    row_holder.addView(new TextView(ctx)); // blank space
-
-    return ll;
   }
 }
 

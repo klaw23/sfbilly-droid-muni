@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/layoutRouteRow"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent" android:paddingBottom="6sp">
+
+    <LinearLayout
+        android:id="@+id/layoutInbound"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" android:layout_weight="1" android:paddingRight="5sp" android:paddingLeft="4sp">
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutOutbound"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" android:gravity="right" android:layout_weight="1" android:paddingRight="2sp">
+    </LinearLayout>
+        
+</LinearLayout>
