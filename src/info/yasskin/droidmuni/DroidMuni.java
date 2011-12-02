@@ -3,23 +3,33 @@ package info.yasskin.droidmuni;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.viewpagerindicator.TitlePageIndicator;
+import com.viewpagerindicator.TitlePageIndicator.IndicatorStyle;
+import com.viewpagerindicator.TitleProvider;
+
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.database.Cursor;
 import android.database.MatrixCursor;
+import android.graphics.Color;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Parcelable;
+import android.support.v4.view.PagerAdapter;
+import android.support.v4.view.ViewPager;
 import android.text.Html;
 import android.text.method.LinkMovementMethod;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.Window;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemSelectedListener;
 import android.widget.ListView;
@@ -30,6 +40,9 @@ import android.widget.TextView;
 public class DroidMuni extends Activity {
   private final Handler m_handler = new Handler();
 
+  private ViewPager muniPager;
+  private Context cxt;
+  
   /**
    * Set once in onCreate() and never modified again.
    */
@@ -84,34 +97,24 @@ public class DroidMuni extends Activity {
     return result;
   }
 
-  /** Called when the activity is first created. */
-  @Override
-  public void onCreate(Bundle savedInstanceState) {
-    Compatibility.enableStrictMode();
-
-    super.onCreate(savedInstanceState);
-    m_location_manager = (LocationManager) getSystemService(LOCATION_SERVICE);
-
-    m_preferences_manager = new PreferenceManager(this);
-
-    this.setContentView(R.layout.main);
-
-    m_line_spinner = (Spinner) findViewById(R.id.line);
+  /** Called to link up the original DroidMuni widgets to the pager view */
+  private void hookupAllLineWidgets(View v) {
+    m_line_spinner = (Spinner) v.findViewById(R.id.line);
     m_line_adapter =
         setupSpinner(m_line_spinner, "description", mLineClickedHandler);
     m_route_query_manager.setAdapter(m_line_adapter);
     queryRoutes();
 
-    m_direction_spinner = (Spinner) findViewById(R.id.direction);
+    m_direction_spinner = (Spinner) v.findViewById(R.id.direction);
     m_direction_adapter =
         setupSpinner(m_direction_spinner, "title", mDirectionClickedHandler);
     m_directions_query_manager.setAdapter(m_direction_adapter);
 
-    m_stop_spinner = (Spinner) findViewById(R.id.stop);
+    m_stop_spinner = (Spinner) v.findViewById(R.id.stop);
     m_stop_adapter = setupSpinner(m_stop_spinner, "title", mStopClickedHandler);
     m_stop_query_manager.setAdapter(m_stop_adapter);
 
-    m_prediction_list = (ListView) findViewById(R.id.predictions);
+    m_prediction_list = (ListView) v.findViewById(R.id.predictions);
     m_predictions_adapter =
         new SimpleCursorAdapter(this, R.layout.prediction_list_item, null,
             new String[] { "predicted_time" }, new int[] { android.R.id.text1 });
@@ -142,6 +145,36 @@ public class DroidMuni extends Activity {
     });
     m_prediction_list.setAdapter(m_predictions_adapter);
     m_prediction_query_manager.setAdapter(m_predictions_adapter);
+  }
+
+  /** Called when the activity is first created. */
+  @Override
+  public void onCreate(Bundle savedInstanceState) {
+    Compatibility.enableStrictMode();
+
+    super.onCreate(savedInstanceState);
+    requestWindowFeature(Window.FEATURE_NO_TITLE);
+    cxt = this;
+
+    m_location_manager = (LocationManager) getSystemService(LOCATION_SERVICE);
+    m_preferences_manager = new PreferenceManager(this);
+
+    this.setContentView(R.layout.main);
+
+    // Note the helpful title indicator below comes from
+    // http://blog.stylingandroid.com/archives/537
+    // or see https://github.com/JakeWharton/Android-ViewPagerIndicator
+    
+    muniPager = (ViewPager) findViewById(R.id.munipager);
+    muniPager.setAdapter(new DroidMuniPagerAdapter());
+    
+    TitlePageIndicator indicator = (TitlePageIndicator) findViewById(R.id.indicator);    
+    indicator.setViewPager(muniPager);
+    indicator.setFooterColor(0xffa00000);
+    indicator.setFooterIndicatorStyle(IndicatorStyle.Underline);
+    indicator.setFooterLineHeight(3);
+    
+    muniPager.setCurrentItem(1);
   }
 
   private void queryRoutes() {
@@ -233,14 +266,6 @@ public class DroidMuni extends Activity {
     return null;
   }
 
-  /**
-   * @param spinner
-   * @param display_column
-   *          TODO
-   * @param selection_handler
-   *          TODO
-   * @return
-   */
   private SimpleCursorAdapter setupSpinner(Spinner spinner,
       String display_column, OnItemSelectedListener selection_handler) {
     SimpleCursorAdapter adapter =
@@ -255,7 +280,7 @@ public class DroidMuni extends Activity {
 
   private String getSelectedRoute() {
     final int position = m_line_spinner.getSelectedItemPosition();
-    if (position == Spinner.INVALID_POSITION) {
+    if (position == AdapterView.INVALID_POSITION) {
       return null;
     }
     final Cursor cursor = m_line_adapter.getCursor();
@@ -272,7 +297,7 @@ public class DroidMuni extends Activity {
 
   private String getSelectedDirection() {
     final int position = m_direction_spinner.getSelectedItemPosition();
-    if (position == Spinner.INVALID_POSITION) {
+    if (position == AdapterView.INVALID_POSITION) {
       return null;
     }
     final Cursor cursor = m_direction_adapter.getCursor();
@@ -392,7 +417,7 @@ public class DroidMuni extends Activity {
       final float[] results = new float[1];
 
       double best_distance = Double.POSITIVE_INFINITY;
-      int best_position = Spinner.INVALID_POSITION;
+      int best_position = AdapterView.INVALID_POSITION;
       for (stop_cursor.moveToFirst(); !stop_cursor.isAfterLast(); stop_cursor.moveToNext()) {
         double stop_lat = stop_cursor.getDouble(lat_index);
         double stop_lon = stop_cursor.getDouble(lon_index);
@@ -456,4 +481,104 @@ public class DroidMuni extends Activity {
       m_handler.postDelayed(this, REPREDICT_INTERVAL_MS);
     }
   };
+
+
+  private class DroidMuniPagerAdapter extends PagerAdapter implements 
+  TitleProvider {
+
+      private String[] titles = new String[]
+      {   "Nearby",
+          "All Muni Lines",
+          "Favorites",
+      };
+    
+      public String getTitle( int position )
+      {
+          return titles[ position ];
+      }
+
+      @Override
+      public int getCount() {
+              return titles.length;
+      }
+      
+      /**
+      * Create the page for the given position.  The adapter is responsible
+      * for adding the view to the container given here, although it only
+      * must ensure this is done by the time it returns from
+      * {@link #finishUpdate()}.
+      *
+      * @param collection The containing View in which the page will be shown.
+      * @param position The page position to be instantiated.
+      * @return Returns an Object representing the new page.  This does not
+      * need to be a View, but can be some other container of the page.
+      */
+      @Override
+      public Object instantiateItem(View collection, int position) {
+      
+        switch (position) {
+          case 1: // original DroidMuni UI
+            View v = View.inflate(DroidMuni.this.cxt, R.layout.original, null);
+      
+            ((ViewPager) collection).addView(v,0);
+            hookupAllLineWidgets(v); // connect the widgets
+            return v;
+      
+          default: // Left/Right UI
+            View tv = View.inflate(DroidMuni.this.cxt, R.layout.fake, null);
+            ((ViewPager) collection).addView(tv,0);
+      
+            return tv;
+        }
+      }
+      
+      /**
+      * Remove a page for the given position.  The adapter is responsible
+      * for removing the view from its container, although it only must ensure
+      * this is done by the time it returns from {@link #finishUpdate()}.
+      *
+      * @param container The containing View from which the page will be removed.
+      * @param position The page position to be removed.
+      * @param object The same object that was returned by
+      * {@link #instantiateItem(View, int)}.
+      */
+      @Override
+      public void destroyItem(View collection, int position, Object view) {
+              ((ViewPager) collection).removeView((View) view);
+      }
+      
+      
+      
+      @Override
+      public boolean isViewFromObject(View view, Object object) {
+              return view.equals(object);
+      }
+      
+      
+      /**
+      * Called when the a change in the shown pages has been completed.  At this
+      * point you must ensure that all of the pages have actually been added or
+      * removed from the container as appropriate.
+      * @param container The containing View which is displaying this adapter's
+      * page views.
+      */
+      @Override
+      public void finishUpdate(View arg0) {}
+      
+      
+      @Override
+      public void restoreState(Parcelable arg0, ClassLoader arg1) {}
+      
+      @Override
+      public Parcelable saveState() {
+              return null;
+      }
+      
+      @Override
+      public void startUpdate(View arg0) {}
+      
+    }
+  
+  
 }
+
