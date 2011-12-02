@@ -75,7 +75,7 @@ public class NextMuniProvider extends ContentProvider {
     }
   }
 
-  private final DefaultHttpClient mClient = new DefaultHttpClient();
+  // TODO private final DefaultHttpClient mClient = new DefaultHttpClient();
   private boolean m_someone_fetching_routes = false; // Guarded by db.
   // The next field is set in onCreate() and never modified again.
   private Db db;
@@ -248,6 +248,8 @@ public class NextMuniProvider extends ContentProvider {
     HttpGet dir_request = new HttpGet(request_uri);
     InputStream get_response;
     try {
+      DefaultHttpClient mClient = new DefaultHttpClient();
+
       HttpResponse response = mClient.execute(dir_request);
       // TODO(jyasskin): Figure out how best to guarantee that the
       // response gets closed.
