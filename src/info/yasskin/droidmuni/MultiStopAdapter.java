@@ -102,47 +102,6 @@ class MultiStopAdapter extends BaseAdapter {
 
       TreeMap<String, Vector<Long>> directionMap = stop.get(route_name);
 
-      // Add a subrow for each direction      
-      for (String direction : directionMap.keySet()) {
-        LinearLayout this_direction;
-
-        TextView dir_text = new TextView(ctx);
-        dir_text.setPadding(4, 0, 4, 0);
-        dir_text.setTextSize(12);
-
-        TextView predictions = new TextView(ctx);
-        predictions.setTextColor(Color.WHITE);
-        predictions.setTextSize(22);
-        predictions.setSingleLine(true);
-        predictions.setPadding(4, 0, 4, 4);
-
-        if (direction.startsWith("Outbound")) {
-          this_direction = outbound;
-          dir_text.setText(direction.substring(9));
-          dir_text.setGravity(Gravity.RIGHT);
-          predictions.setGravity(Gravity.RIGHT);
-        } else {
-          this_direction = inbound;
-          dir_text.setText(direction.substring(8));
-          dir_text.setGravity(Gravity.LEFT);
-          predictions.setGravity(Gravity.LEFT);
-        }
-        
-        this_direction.addView(dir_text);
-
-        String txt = "";
-        int num_predictions = 0;
-        for (Long prediction : directionMap.get(direction)) {
-          txt = txt + prediction + ", ";
-          if (++num_predictions > 2)
-            break;
-        }
-        txt = txt.substring(0, txt.length() - 2);
-
-        predictions.setText(txt);
-        this_direction.addView(predictions);
-      }
-
       // Add a light horiz line between routes at this stop, for readability
       TextView greyLine = new TextView(ctx);
       greyLine.setHeight(2);

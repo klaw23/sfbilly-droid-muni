@@ -496,12 +496,6 @@ public class DroidMuni extends Activity {
     m_multistop_list =
         (ListView) DroidMuni.this.findViewById(R.id.multistop_predictions);
 
-    if (m_location_manager == null) {
-      m_multistop_list.setAdapter(new ArrayAdapter<String>(this,
-          android.R.layout.simple_list_item_1, new String[] { no_location }));
-      return;
-    }
-
     final String provider_name =
         m_location_manager.getBestProvider(new Criteria(), true);
 
@@ -514,9 +508,6 @@ public class DroidMuni extends Activity {
     if (m_location_manager.isProviderEnabled(provider_name))
       Log.i("DroidMuni", "Provider is disabled: " + provider_name);
 
-    final Location my_location =
-        m_location_manager.getLastKnownLocation(provider_name);
-
     if (my_location == null) {
       m_multistop_list.setAdapter(new ArrayAdapter<String>(this,
           android.R.layout.simple_list_item_1, new String[] { no_location }));
@@ -526,166 +517,8 @@ public class DroidMuni extends Activity {
     m_multistop_list.setAdapter(new ArrayAdapter<String>(this,
         android.R.layout.simple_list_item_1,
         new String[] { "\nScanning for closest stops..." }));
-
-    new ClosestStops().execute(my_location);
   }
 
-  private class ClosestStops extends
-      AsyncTask<Location, Integer, Vector<ExtendedStop>> {
-
-    protected void onProgressUpdate(Integer... progress) {
-      TextView tv = (TextView) findViewById(R.id.labelRoute);
-      if (tv != null)
-        tv.setText("" + progress[0] + "%");
-    }
-
-    @Override
-    protected Vector<ExtendedStop> doInBackground(
-        Location... loc) {
-
-      TreeMap<String, LocationAwareStop> all_close_stops =
-          new TreeMap<String, LocationAwareStop>();
-
-      // TODO: limit to just route tags
-      // 1. Get list of all routes, and save closest stop for each
-      // line/direction
-
-      //String[] routes =
-      //    { "14", "J", "48", "14", "14L", "48", "49", "12", "33" };
-      //for (int i = 0; i < routes.length; i++) {
-      //  String route = routes[i];
-
-      Cursor routes = managedQuery(NextMuniProvider.ROUTES_URI, null, null, null, null);
-
-      // 2. Loop for each one & find closest stop
-        int route_tag = routes.getColumnIndexOrThrow("tag");
-        int route_count = routes.getCount();
-      // int route_count = routes.length;
-        int num_attempted = 0;
-
-      for (routes.moveToFirst(); !routes.isAfterLast(); routes.moveToNext()) {
-        String route = routes.getString(route_tag);
-        num_attempted++;
-        if (num_attempted % 7 == 0)
-          publishProgress(100 * num_attempted / route_count);
-
-        // TODO: limit to just important tags
-        Cursor dirs =
-            managedQuery(
-                Uri.withAppendedPath(NextMuniProvider.DIRECTIONS_URI, route),
-                null, null, null, null);
-
-        int dirpos = dirs.getColumnIndexOrThrow("tag");
-        for (dirs.moveToFirst(); !dirs.isAfterLast(); dirs.moveToNext()) {
-          String dir = dirs.getString(dirpos);
-
-          // TODO: limit to just important tags
-          Cursor stops =
-              managedQuery(
-                  Uri.withAppendedPath(NextMuniProvider.STOPS_URI, route + "/"
-                                                                   + dir),
-                  null, null, null, null);
-          int stop_title_pos = stops.getColumnIndexOrThrow("title");
-          int stop_id_pos = stops.getColumnIndexOrThrow("stop_id");
-          int stop_lat_pos = stops.getColumnIndexOrThrow("lat");
-          int stop_lon_pos = stops.getColumnIndexOrThrow("lon");
-
-          int closest_stop = getClosestStop(loc[0], stops);
-          stops.moveToPosition(closest_stop);
-          String title = stops.getString(stop_title_pos);
-          String tag = stops.getString(stop_id_pos);
-          double lat  = stops.getDouble(stop_lat_pos);
-          double lon  = stops.getDouble(stop_lon_pos);
-                    
-          all_close_stops.put(tag, new LocationAwareStop(tag, title,
-              loc[0],
-              lat, lon));
-        }
-      }
-
-      // One stop per line/direction should now be in all_close_stops
-      Object[] ordered_stops = all_close_stops.values().toArray();
-      Arrays.sort(ordered_stops);
-
-      // Crazy vector of predictions by direction by route by stop!
-      Vector<ExtendedStop> merged_stops = new Vector<ExtendedStop>();
-
-      // Loop through initial stops -- we'll break out of this once we have six
-      // complete & unique street corners to display
-
-      for (int p = 0; p < ordered_stops.length
-                      && merged_stops.size() < NUM_CLOSEST_STOPS; p++) {
-
-        LocationAwareStop stop = (LocationAwareStop) ordered_stops[p];
-        Cursor predictions =
-            managedQuery(Uri.withAppendedPath(NextMuniProvider.PREDICTIONS_URI,
-                stop.stop_id),
-                null, null, null, null);
-
-        if (predictions == null)
-          continue;
-
-        long now = System.currentTimeMillis();
-        int pRoute = predictions.getColumnIndexOrThrow("route_tag");
-        int pDir = predictions.getColumnIndexOrThrow("direction_title");
-        int pTime = predictions.getColumnIndexOrThrow("predicted_time");
-        for (predictions.moveToFirst(); !predictions.isAfterLast(); predictions.moveToNext()) {
-          long minutes =
-              (Long.parseLong(predictions.getString(pTime)) - now) / 60000;
-          String route = predictions.getString(pRoute);
-          String direction = predictions.getString(pDir);
-
-          // Add new stop if its TITLE is textually different from the last one
-          if (merged_stops.size() == 0
-              || !stop.title.equals(((ExtendedStop) merged_stops.elementAt(merged_stops.size() - 1)).stop_title)) {
-            merged_stops.add(new ExtendedStop(stop.title));
-          }
-
-          ExtendedStop myStop =
-              ((ExtendedStop) merged_stops.elementAt(merged_stops.size() - 1));
-          
-          // Then sort by route
-          if (!myStop.containsKey(route)) {
-            myStop.put(route, new TreeMap<String, Vector<Long>>());
-          }
-          TreeMap<String, Vector<Long>> byDirection = myStop.get(route);
-
-          // Then sort by direction
-          if (!byDirection.containsKey(direction)) {
-            byDirection.put(direction, new Vector<Long>());
-          }
-
-          // Append the prediction!
-          Vector<Long> route_predictions = byDirection.get(direction);
-          route_predictions.add(minutes);
-        }
-      }
-
-      return merged_stops;
-    }
-
-    @Override
-    protected void onPostExecute(Vector<ExtendedStop> sorted_stops) {
-
-      TextView tv = (TextView) findViewById(R.id.labelRoute);
-      if (tv != null)
-        tv.setText("Route");
-
-      if (sorted_stops.isEmpty()) {
-        return;
-      }
-      
-      m_multistop_adapter = new MultiStopAdapter(sorted_stops);
-      m_multistop_list =
-          (ListView) DroidMuni.this.findViewById(R.id.multistop_predictions);
-
-      if (m_multistop_list != null)
-        m_multistop_list.setAdapter(m_multistop_adapter);
-    }
-
-  }    
-
-  
   private final OnItemSelectedListener mStopClickedHandler =
       new OnItemSelectedListener() {
         public void onItemSelected(AdapterView<?> parent, View v, int position,
